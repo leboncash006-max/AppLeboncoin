@@ -291,15 +291,21 @@ class RadarDb {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// Fil : rentables en haut, puis les plus récentes.
-  static Future<List<RadarAnalysis>> analyses({int? searchId, int limit = 5000}) async =>
+  /// Fil : « recent » (les plus récentes d'abord) ou « best » (meilleures
+  /// marges d'abord, non chiffrées à la fin).
+  static Future<List<RadarAnalysis>> analyses({int? searchId, int limit = 5000, String sort = 'recent'}) async =>
       (await (await db).query('analyses',
               where: searchId == null ? null : 'search_id = ?',
               whereArgs: searchId == null ? null : [searchId],
-              orderBy: 'profitable DESC, created_at DESC',
+              orderBy: sort == 'best'
+                  ? 'margin IS NULL, margin DESC, created_at DESC'
+                  : 'created_at DESC',
               limit: limit))
           .map(RadarAnalysis.fromRow)
           .toList();
+
+  static Future<void> deleteAnalysis(String listId) async =>
+      (await db).delete('analyses', where: 'list_id = ?', whereArgs: [listId]);
 
   static Future<RadarAnalysis?> analysis(String listId) async {
     final rows = await (await db).query('analyses', where: 'list_id = ?', whereArgs: [listId]);
@@ -379,6 +385,10 @@ class RadarDb {
       await d.insert('kv', {'k': k, 'v': v}, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
+
+  /// Tri du fil choisi par l'utilisateur (« recent » ou « best »).
+  static Future<String> feedSort() async => await get('feed_sort') ?? 'recent';
+  static Future<void> setFeedSort(String v) => set('feed_sort', v);
 
   static Future<int> getInt(String k) async => int.tryParse(await get(k) ?? '') ?? 0;
   static Future<void> setInt(String k, int v) => set(k, '$v');

@@ -20,6 +20,7 @@ class RadarAllScreen extends StatefulWidget {
 class _RadarAllScreenState extends State<RadarAllScreen> {
   bool _analyzed = true;
   bool _onlyProfitable = false;
+  String _sort = 'recent';
   String _query = '';
   int? _search;
   List<RadarSearch> _searches = [];
@@ -34,7 +35,8 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
 
   Future<void> _load() async {
     final searches = await RadarDb.searches();
-    final analyses = await RadarDb.analyses(searchId: _search);
+    _sort = await RadarDb.feedSort();
+    final analyses = await RadarDb.analyses(searchId: _search, sort: _sort);
     final seen = await RadarDb.seenAds(searchId: _search);
     if (!mounted) return;
     setState(() {
@@ -140,6 +142,19 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
             ),
             const SizedBox(height: 10),
             if (_analyzed) ...[
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'recent', icon: Icon(Icons.schedule, size: 18), label: Text('Récent')),
+                  ButtonSegment(value: 'best', icon: Icon(Icons.trending_up, size: 18), label: Text('Bonne affaire')),
+                ],
+                selected: {_sort},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) async {
+                  await RadarDb.setFeedSort(v.first);
+                  _load();
+                },
+              ),
+              const SizedBox(height: 10),
               if (analyses.isEmpty) _empty(cs),
               for (final a in analyses) ...[
                 _AnalysisTile(a: a, minMargin: widget.settings.minMargin, onTap: () => _openAnalysis(a)),

@@ -7,6 +7,14 @@ import 'mpb_catalog.dart';
 import 'mpb_service.dart';
 import 'settings.dart';
 
+/// Annonce d'accessoire (d'après le TITRE) : bagues, filtres, sacs… pas de reprise MPB.
+final accessoryTitle = RegExp(
+    r'^\W*(?:\d+\s*)?(?:lot\s+(?:de\s+)?)?(?:\d+\s*)?(?<acc>bagues?|adaptateurs?|filtres?|pare[- ]soleils?|bouchons?|sacs?|'
+    r'sacoches?|tr[ée]pieds?|monopodes?|batteries?|chargeurs?|grips?|poign[ée]es?|cartes?|c[âa]bles?|'
+    r't[ée]l[ée]commandes?|courroies?|dragonnes?|housses?|[ée]tuis?|rotules?|oeilletons?|[œo]illetons?|'
+    r'protections?|films?|pellicules?|flashs?\s+cobra\s+universel)\b',
+    caseSensitive: false);
+
 /// Variantes du catalogue MPB qu'on écarte sauf si l'annonce les mentionne.
 final _special = RegExp(r'astro|infrarouge|converti|modifi|full spectrum', caseSensitive: false);
 
@@ -112,6 +120,10 @@ String _choosePrompt(String ad, List<ItemResult> items) {
 
 typedef Progress = void Function(String step);
 
+/// Alerte posée quand la reprise dépasse 6 fois le prix (et +150 €).
+const suspiciousWarning = '⚠️ Estimation à vérifier : la reprise MPB dépasse 6 fois le prix '
+    'de l\'annonce (modèle probablement mal identifié).';
+
 /// État MPB correspondant à l'attribut « État » de Leboncoin.
 /// « parts » = pour pièces (aucun rachat) ; état inconnu → good.
 String conditionFromAd(String attributesText) {
@@ -157,6 +169,20 @@ class Analyzer {
       description,
     ].join('\n').trim();
     final warnings = <String>[];
+
+    // annonce d'accessoire : rien à reprendre chez MPB, pas d'appel inutile
+    if (accessoryTitle.hasMatch(title)) {
+      return Analysis(
+        items: [],
+        price: price,
+        defects: [],
+        conditionHint: 'inconnu',
+        shutterCount: null,
+        warnings: ['Accessoire (${accessoryTitle.firstMatch(title)!.namedGroup('acc')}) : pas de reprise MPB estimée.'],
+        condition: conditionFromAd('$attributes\n$title'),
+        prudentCondition: conditionBelow(conditionFromAd('$attributes\n$title')),
+      );
+    }
 
     // 0. Mode local : identification SANS IA (catalogue MPB + mots-clés).
     //    Gemini ne sert qu'en secours, si rien n'est reconnu.
@@ -328,6 +354,14 @@ class Analyzer {
 
     if (searchError != null) warnings.insert(0, 'Recherche MPB impossible : $searchError');
     if (price == null) warnings.add('Prix de l\'annonce inconnu.');
+    // garde-fou : reprise très supérieure au prix → identification probablement fausse
+    final buyback = results.fold(0.0, (t, r) => t + (r.buyback ?? 0));
+    if (price != null && price > 0 && buyback > 6 * price && buyback - price > 150) {
+      warnings.insert(0, suspiciousWarning);
+      for (final r in results) {
+        r.confident = false;
+      }
+    }
     if (defects.isNotEmpty) {
       warnings.insert(0, 'Défauts signalés : ${defects.join(", ")}');
     }

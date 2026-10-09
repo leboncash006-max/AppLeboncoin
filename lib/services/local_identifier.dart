@@ -65,8 +65,15 @@ class LocalIdentifier {
         score += ad.has(a) ? 2 : -0.5;
       }
       for (final w in m.extra) {
-        score += ad.has(w) ? 1 : -0.3;
+        if (ad.has(w)) {
+          score += 1;
+        } else {
+          // version haut de gamme non citée (PRO, L, Art, GM…) : très peu probable
+          score -= _premium.contains(w) ? 4 : 0.3;
+        }
       }
+      // ouverture non précisée : préférer l'objectif « grand public » (ouverture variable)
+      if (!m.apertures.any(ad.has) && m.apertures.length >= 2) score += 1;
       if (m.mount != null && ad.brands.contains(m.mount)) score += 1;
       final key = m.focal!;
       final cur = lenses[key];
@@ -231,6 +238,9 @@ const _brandAliases = {
   '7artisans': '7artisans',
 };
 
+/// Mentions des versions haut de gamme (beaucoup plus chères).
+const _premium = {'pro', 'l', 'art', 'sport', 'sports', 'gm', 'master', 'plena', 'noct', 'apd'};
+
 /// Montures anciennes : si l'annonce en cite une, l'objectif doit être de cette monture.
 const _vintageMounts = ['fd', 'fl', 'nfd', 'ais', 'm42', 'pk'];
 
@@ -281,7 +291,8 @@ class _Model {
 
     if (focalM != null && !isFlash) {
       final focal = focalM.group(2) == null ? _num(focalM.group(1)!) : '${_num(focalM.group(1)!)}-${_num(focalM.group(2)!)}';
-      final apertures = RegExp(r'f\s*/?\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?')
+      // ouvertures écrites « f/2.4 » ou « f/3.5-5.6 » (pas le f de « XF 60mm »)
+      final apertures = RegExp(r'(?<![a-z])f/(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?')
           .allMatches(lower)
           .expand((m) => [m.group(1), m.group(2)])
           .whereType<String>()
@@ -290,6 +301,8 @@ class _Model {
           .skip(1)
           .where((w) => !RegExp(r'\d').hasMatch(w) && !_stop.contains(w) && w.length >= 2 && _brandAliases[w] == null)
           .toList();
+      // série L de Canon (« f/4L ») : mention haut de gamme
+      if (RegExp(r'f/\d+(?:\.\d+)?l\b').hasMatch(lower)) extra.add('l');
       return _Model(name, lower, brand, _Kind.lens, const [], extra, roman, focal, apertures, mount);
     }
 
@@ -360,6 +373,7 @@ class _AdIndex {
     if (low.contains('mkii') || low.contains('mk2') || low.contains('mark 2')) roman.add('ii');
     if (low.contains('mkiii') || low.contains('mk3') || low.contains('mark 3')) roman.add('iii');
     words.addAll(roman);
+    if (RegExp(r'\d(?:[.,]\d)?\s*l\b|serie l\b|\bl series?\b').hasMatch(low)) words.add('l');
     // focales : « 18-55 », « 18-55mm », « 70 - 300 mm », « 50mm »
     for (final m in RegExp(r'(?<![\d.,/])(\d{1,3})(?![\d.,])\s*(?:-|–|a)\s*(\d{2,3})(?![\d.,])\s*(?:mm)?').allMatches(low)) {
       final a = int.parse(m.group(1)!), b = int.parse(m.group(2)!);
@@ -369,7 +383,7 @@ class _AdIndex {
       focals.add(m.group(1)!);
     }
     // ouvertures « f/1.8 », « 1:1.8 », « f1.8 », « f3.5-5.6 »
-    for (final m in RegExp(r'(?:f\s*/?\s*|1\s*:\s*)(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?').allMatches(low)) {
+    for (final m in RegExp(r'(?:(?<![a-z])f\s*/?\s*|(?<![\d.])1\s*:\s*)(\d+(?:[.,]\d+)?)(?:\s*-\s*(\d+(?:[.,]\d+)?))?').allMatches(low)) {
       for (final g in [m.group(1), m.group(2)]) {
         if (g != null) words.add(_num(g.replaceAll(',', '.')));
       }

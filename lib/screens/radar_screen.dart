@@ -34,6 +34,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
   List<RadarAnalysis> _feed = [];
   List<RadarSearch> _searches = [];
   int? _filter;
+  String _sort = 'recent';
   RadarState _state = RadarState.active;
   RadarPermissions? _perms;
   ({int seen, int analyzed, RadarAnalysis? best})? _today;
@@ -80,7 +81,8 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
   Future<void> _load() async {
     final perms = await RadarBridge.status();
     final searches = await RadarDb.searches();
-    final feed = await RadarDb.analyses(searchId: _filter);
+    _sort = await RadarDb.feedSort();
+    final feed = await RadarDb.analyses(searchId: _filter, sort: _sort);
     final today = await RadarDb.today();
     var state = await RadarDb.state();
     if (perms != null && !perms.enabled) state = RadarState.off;
@@ -102,6 +104,23 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
     _load();
   }
 
+  Future<void> _delete(RadarAnalysis a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Retirer du fil ?'),
+        content: Text('« ${a.title} »'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Retirer')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await RadarDb.deleteAnalysis(a.listId);
+    _load();
+  }
+
   Future<void> _push(Widget w) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => w));
     _load();
@@ -115,8 +134,8 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
   Future<void> _runNow() async {
     await RadarBridge.start('manual');
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Radar lancé sur toutes les recherches actives.')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Radar lancé sur toutes les recherches actives.')));
   }
 
   @override
@@ -248,20 +267,32 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
                     ),
                 ]),
               ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            _SortBar(
+              sort: _sort,
+              onChanged: (v) async {
+                await RadarDb.setFeedSort(v);
+                _load();
+              },
+            ),
+            const SizedBox(height: 10),
             if (_feed.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32),
                 child: Column(children: [
                   Icon(Icons.radar, size: 40, color: cs.onSurfaceVariant),
                   const SizedBox(height: 8),
-                  Text('Aucune annonce analysée pour le moment.',
-                      style: TextStyle(color: cs.onSurfaceVariant)),
+                  Text('Aucune annonce analysée pour le moment.', style: TextStyle(color: cs.onSurfaceVariant)),
                 ]),
               )
             else
               for (final a in _feed) ...[
-                _FeedTile(a: a, minMargin: widget.settings.minMargin, onTap: () => _open(a)),
+                _FeedTile(
+                  a: a,
+                  minMargin: widget.settings.minMargin,
+                  onTap: () => _open(a),
+                  onLongPress: () => _delete(a),
+                ),
                 const SizedBox(height: 8),
               ],
           ],
@@ -379,7 +410,8 @@ class _FeedTile extends StatelessWidget {
   final RadarAnalysis a;
   final double minMargin;
   final VoidCallback onTap;
-  const _FeedTile({required this.a, required this.minMargin, required this.onTap});
+  final VoidCallback onLongPress;
+  const _FeedTile({required this.a, required this.minMargin, required this.onTap, required this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -390,30 +422,56 @@ class _FeedTile extends StatelessWidget {
       'limit' => ' · provisoire',
       _ => ' · pré-analyse',
     };
-    return Opacity(
-      opacity: a.profitable ? 1 : 0.55,
-      child: AppCard(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        onTap: onTap,
-        child: Row(children: [
-          Container(width: 6, height: 44, decoration: BoxDecoration(color: v.color, borderRadius: BorderRadius.circular(4))),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-              const SizedBox(height: 3),
-              Text('${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
-            ]),
-          ),
-          const SizedBox(width: 10),
-          Text(euros(a.margin, signed: true),
-              style: TextStyle(color: v.color, fontWeight: FontWeight.w800, fontSize: 18, fontFeatures: tabular)),
-        ]),
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Opacity(
+        opacity: a.profitable ? 1 : 0.55,
+        child: AppCard(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          onTap: onTap,
+          child: Row(children: [
+            Container(
+                width: 6,
+                height: 44,
+                decoration: BoxDecoration(color: v.color, borderRadius: BorderRadius.circular(4))),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(a.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 3),
+                Text('${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+              ]),
+            ),
+            const SizedBox(width: 10),
+            Text(euros(a.margin, signed: true),
+                style: TextStyle(color: v.color, fontWeight: FontWeight.w800, fontSize: 18, fontFeatures: tabular)),
+          ]),
+        ),
       ),
     );
   }
+}
+
+/// Tri du fil : récentes ou meilleures affaires.
+class _SortBar extends StatelessWidget {
+  final String sort;
+  final ValueChanged<String> onChanged;
+  const _SortBar({required this.sort, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: 'recent', icon: Icon(Icons.schedule, size: 18), label: Text('Récent')),
+          ButtonSegment(value: 'best', icon: Icon(Icons.trending_up, size: 18), label: Text('Bonne affaire')),
+        ],
+        selected: {sort},
+        showSelectedIcon: false,
+        onSelectionChanged: (v) => onChanged(v.first),
+      );
 }

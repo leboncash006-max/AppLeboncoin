@@ -425,7 +425,8 @@ class RadarEngine {
         .map((i) => i.mpbModel ?? i.item.nameGuess)
         .join(' + ');
     final sign = m >= 0 ? '+' : '';
-    var title = '$sign${m.toStringAsFixed(0)} € · ${names.isEmpty ? a.subject : names}';
+    final doubt = an.warnings.contains(suspiciousWarning);
+    var title = '${doubt ? '⚠️ À vérifier · ' : ''}$sign${m.toStringAsFixed(0)} € · ${names.isEmpty ? a.subject : names}';
     if (title.length > 80) title = '${title.substring(0, 79)}…';
     final cond = mpbConditionLabels[an.condition] ?? 'Bon';
     final text = '${an.price?.toStringAsFixed(0) ?? '?'} € → reprise ${an.totalBuyback.toStringAsFixed(0)} € '
