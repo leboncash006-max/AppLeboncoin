@@ -74,7 +74,9 @@ Variante n°${Random().nextInt(100000)} : formulation différente des précéden
   /// ou « non ». Celui de l'analyse s'il a été fait, sinon calculé maintenant.
   Future<({String verdict, String reason})> verify(HistoryEntry e) async {
     final a = e.analysis;
-    if (a.aiVerdict != null) return (verdict: a.aiVerdict!, reason: a.aiReason);
+    if (a.verdict != null) {
+      return (verdict: a.verdict!, reason: a.verdict == a.aiVerdict ? a.aiReason : 'Élément non trouvé chez MPB');
+    }
     final v = await MatchCheck.run(gemini, a, e.title, e.attributesText, e.description);
     a.aiVerdict = v.verdict;
     a.aiReason = v.reason;

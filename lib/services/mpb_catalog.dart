@@ -21,6 +21,7 @@ class MpbCatalog {
   MpbCatalog(this.ids, this.date);
 
   static const maxAge = Duration(days: 7);
+  static const _version = 2; // 2 : tous marchés
   static MpbCatalog? _memory;
 
   int get size => ids.length;
@@ -40,7 +41,8 @@ class MpbCatalog {
       final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       _memory = MpbCatalog(
         Map<String, dynamic>.from(j['ids'] as Map).map((k, v) => MapEntry(k, (v as num).toInt())),
-        DateTime.parse(j['date'] as String),
+        // ancien format : gardé en secours mais considéré périmé (retéléchargé)
+        (j['v'] as num? ?? 1) < _version ? DateTime(2000) : DateTime.parse(j['date'] as String),
       );
       return _memory;
     } catch (_) {
@@ -50,7 +52,7 @@ class MpbCatalog {
 
   Future<void> _save() async {
     final f = await _file();
-    await f.writeAsString(jsonEncode({'date': date.toIso8601String(), 'ids': ids}));
+    await f.writeAsString(jsonEncode({'v': _version, 'date': date.toIso8601String(), 'ids': ids}));
   }
 
   /// Demande un nouveau téléchargement à la prochaine analyse.
@@ -73,6 +75,11 @@ class MpbCatalog {
           : 'Mise à jour du catalogue MPB…');
       final ids = await mpb.allModels(onProgress: (n) => onStatus?.call('Catalogue MPB : $n modèles…'));
       if (ids.length < 500) return current; // liste manifestement incomplète
+      // 2e passe sans filtre de marché : des modèles (ex. Sony Alpha SLT-A68) manquaient
+      try {
+        await mpb.allModels(
+            market: null, into: ids, onProgress: (n) => onStatus?.call('Catalogue MPB : $n modèles…'));
+      } catch (_) {}
       final cat = MpbCatalog(ids, DateTime.now());
       await cat._save();
       _memory = cat;

@@ -134,6 +134,10 @@ class Analysis {
   String? aiVerdict;
   String aiReason;
 
+  /// Verdict utilisable : jamais « oui » si un élément n'a pas de modèle MPB
+  /// (protège aussi les analyses enregistrées avant cette règle).
+  String? get verdict => aiVerdict == 'oui' && items.any((i) => i.mpbModel == null) ? 'doute' : aiVerdict;
+
   /// Moteur d'identification : « ia » ou « local » (secours si l'IA échoue).
   String engine;
 

@@ -153,15 +153,20 @@ class MpbService {
   /// Identifiant MPB du modèle (marche aussi hors stock).
   Future<int?> modelId(String modelName) async {
     if (_idCache.containsKey(modelName)) return _idCache[modelName];
-    final data = await _get('/search-service/product/query/', {
-      'filter_query[model_name]': '"$modelName"',
-      'filter_query[object_type]': 'model',
-      'filter_query[model_market]': 'EU',
-      'field_list': ['model_id', 'model_name'],
-      'rows': '1',
-    });
-    final rows = (data['results'] as List?) ?? [];
-    final id = rows.isEmpty ? null : int.tryParse(_first(rows.first, 'model_id') ?? '');
+    int? id;
+    // d'abord le marché européen, puis sans filtre de marché (certains modèles n'y sont pas)
+    for (final market in ['EU', null]) {
+      final data = await _get('/search-service/product/query/', {
+        'filter_query[model_name]': '"$modelName"',
+        'filter_query[object_type]': 'model',
+        if (market != null) 'filter_query[model_market]': market,
+        'field_list': ['model_id', 'model_name'],
+        'rows': '1',
+      });
+      final rows = (data['results'] as List?) ?? [];
+      id = rows.isEmpty ? null : int.tryParse(_first(rows.first, 'model_id') ?? '');
+      if (id != null) break;
+    }
     _idCache[modelName] = id;
     return id;
   }
@@ -169,14 +174,15 @@ class MpbService {
   /// Tous les modèles du catalogue MPB (nom exact → identifiant), y compris
   /// ceux qui ne sont pas en stock. Lu par pages ; s'arrête quand une page
   /// n'apporte plus rien.
-  Future<Map<String, int>> allModels({void Function(int)? onProgress}) async {
+  /// [market] : 'EU' (par défaut) ou null pour tous les marchés.
+  Future<Map<String, int>> allModels({void Function(int)? onProgress, String? market = 'EU', Map<String, int>? into}) async {
     const pageSize = 2000;
-    final out = <String, int>{};
+    final out = into ?? <String, int>{};
     var start = 0;
     for (var page = 0; page < 400; page++) {
       final data = await _get('/search-service/product/query/', {
         'filter_query[object_type]': 'model',
-        'filter_query[model_market]': 'EU',
+        if (market != null) 'filter_query[model_market]': market,
         'field_list': ['model_id', 'model_name'],
         'rows': '$pageSize',
         'start': '$start',

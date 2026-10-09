@@ -16,6 +16,12 @@ final accessoryTitle = RegExp(
     r'protections?|films?|pellicules?|flashs?\s+cobra\s+universel)\b',
     caseSensitive: false);
 
+/// Pièces détachées du catalogue MPB (jamais un boîtier ni un objectif).
+final _part = RegExp(
+    r'couvercle|trappe|compartiment|bouchon|cache\b|capot|oeilleton|œilleton|courroie|volet|'
+    r'plaque|griffe|pare-soleil|pi[eè]ce de rechange|cache-griffe|bague de|batterie\b',
+    caseSensitive: false);
+
 /// Variantes du catalogue MPB qu'on écarte sauf si l'annonce les mentionne.
 final _special = RegExp(r'astro|infrarouge|converti|modifi|full spectrum', caseSensitive: false);
 
@@ -209,6 +215,31 @@ class Analyzer {
       price ??= (ext['price_in_text'] as num?)?.toDouble();
       defects = ((ext['defects'] as List?) ?? []).map((e) => '$e').toList();
 
+      // recherche en direct chez MPB (secours du catalogue)
+      Future<List<String>> liveSearch(ExtractedItem it) async {
+        final out = <String>{};
+        final codes =
+            MpbCatalog.tokens(it.nameGuess).where((w) => w.contains(RegExp(r'\d'))).join(' ');
+        final queries = [
+          it.searchQuery,
+          it.nameGuess,
+          '${it.brand} ${it.nameGuess}',
+          if (codes.isNotEmpty) '${it.brand} $codes',
+        ];
+        for (final q in queries) {
+          if (out.length >= 6) break;
+          try {
+            out.addAll(await mpb.suggest(q));
+          } catch (e) {
+            searchError ??= e.toString().replaceFirst('Exception: ', '');
+            failedSearch.add(it);
+            break;
+          }
+        }
+        out.removeWhere((c) => _part.hasMatch(c));
+        return out.toList();
+      }
+
       // 2. Recherche des candidats dans le catalogue MPB
       onStep?.call('Recherche dans le catalogue MPB…');
       final exactMatches = <ExtractedItem, String>{};
@@ -225,27 +256,11 @@ class Analyzer {
             cands.addAll(cat.match('${it.nameGuess} ${it.searchQuery}', brand: it.brand));
           }
         }
-        // b) moteur de recherche MPB, seulement sans catalogue ou sans résultat
-        if (cands.isEmpty) {
-          final codes =
-              MpbCatalog.tokens(it.nameGuess).where((w) => w.contains(RegExp(r'\d'))).join(' ');
-          final queries = [
-            it.searchQuery,
-            it.nameGuess,
-            '${it.brand} ${it.nameGuess}',
-            if (codes.isNotEmpty) '${it.brand} $codes',
-          ];
-          for (final q in queries) {
-            if (cands.length >= 6) break;
-            try {
-              cands.addAll(await mpb.suggest(q));
-            } catch (e) {
-              searchError ??= e.toString().replaceFirst('Exception: ', '');
-              failedSearch.add(it);
-              break;
-            }
-          }
-        }
+        // pièces détachées du catalogue (« … Couvercle du compartiment de la batterie ») :
+        // jamais candidates pour un boîtier, un objectif ou un flash
+        cands.removeWhere((c) => _part.hasMatch(c));
+        // b) moteur de recherche MPB en direct, si le catalogue n'a rien donné
+        if (cands.isEmpty) cands.addAll(await liveSearch(it));
         final filtered = cands
             .where((c) => !_special.hasMatch(c) || _special.hasMatch(adLower))
             .take(12)
@@ -279,9 +294,35 @@ class Analyzer {
           }
         }
       }
+      // 3 ter. l'IA n'a rien retenu dans le catalogue : nouvelle recherche en direct
+      //        chez MPB, puis l'IA choisit à nouveau parmi ces candidats
+      final retry = <ItemResult>[];
+      for (final r in results.where((r) => r.mpbModel == null)) {
+        final fresh = (await liveSearch(r.item)).where((c) => !r.candidates.contains(c)).toList();
+        if (fresh.isEmpty) continue;
+        r.candidates
+          ..clear()
+          ..addAll(fresh.take(12));
+        retry.add(r);
+      }
+      if (retry.isNotEmpty) {
+        onStep?.call('Recherche complémentaire chez MPB…');
+        final ch = await gemini.generateJson(_choosePrompt(ad, retry), _chooseSchema);
+        for (final c in (ch['choices'] as List? ?? [])) {
+          final idx = (c['index'] as num?)?.toInt();
+          if (idx == null || idx < 0 || idx >= retry.length) continue;
+          final r = retry[idx];
+          final model = c['model']?.toString();
+          if (model != null && r.candidates.contains(model)) {
+            r.mpbModel = model;
+            r.confident = c['confident'] == true;
+            r.reason = (c['reason'] ?? '').toString();
+          }
+        }
+      }
       // l'IA n'a rien retenu : un seul candidat porte exactement la même
       // référence (a68, 1200d, 16-50…) → on le prend, marqué incertain.
-      for (final r in withCands.where((r) => r.mpbModel == null)) {
+      for (final r in results.where((r) => r.mpbModel == null && r.candidates.isNotEmpty)) {
         final codes = MpbCatalog.tokens('${r.item.nameGuess} ${r.item.searchQuery}')
             .where((w) => w.contains(RegExp(r'\d')))
             .toSet();

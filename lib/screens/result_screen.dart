@@ -193,10 +193,10 @@ class _ResultScreenState extends State<ResultScreen> {
             const SizedBox(height: 4),
             Text(
               '${a.engine == 'local' ? 'Identifié par le catalogue local (IA indisponible)' : 'Identifié par l\'IA'}'
-              '${switch (a.aiVerdict) { 'oui' => ' · correspondance vérifiée ✓', 'doute' => ' · vérification : doute', 'non' => ' · vérification : non', _ => '' }}',
+              '${switch (a.verdict) { 'oui' => ' · correspondance vérifiée ✓', 'doute' => ' · vérification : doute', 'non' => ' · vérification : non', _ => '' }}',
               style: TextStyle(
                   fontSize: 12.5,
-                  color: a.aiVerdict == 'oui' ? AppColors.good : Theme.of(context).colorScheme.onSurfaceVariant),
+                  color: a.verdict == 'oui' ? AppColors.good : Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 10),
             for (final it in a.items) ...[
