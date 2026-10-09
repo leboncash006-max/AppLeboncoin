@@ -293,7 +293,13 @@ class RadarEngine {
     await _live(
         step: '${ads.length} annonces lues, ${fresh.length} nouvelle(s), ${candidates.length} à analyser');
     for (var i = 0; i < candidates.length; i++) {
-      final go = await _analyze(s, candidates[i], i + 1, candidates.length);
+      final a = candidates[i];
+      // 4 min au plus par annonce : le radar ne reste jamais bloqué sur une page
+      final go = await _analyze(s, a, i + 1, candidates.length).timeout(const Duration(minutes: 4), onTimeout: () async {
+        await RadarDb.log('  « ${a.subject} » : trop long (4 min), annonce suivante');
+        await _lbc.dispose(); // WebView neuve pour la suite
+        return true;
+      });
       if (!go) return false;
     }
     return true;

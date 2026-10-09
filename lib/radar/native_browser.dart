@@ -13,14 +13,19 @@ class NativeBrowser {
   NativeBrowser(this.tab);
 
   Future<({bool ok, String? error})> load(String url, {int timeoutMs = 30000}) async {
-    final r = Map<String, dynamic>.from(
-        await _ch.invokeMethod('load', {'tab': tab, 'url': url, 'timeoutMs': timeoutMs}) as Map);
+    // délais de sécurité côté Dart aussi : le radar ne doit jamais rester bloqué
+    final r = Map<String, dynamic>.from(await _ch
+        .invokeMethod('load', {'tab': tab, 'url': url, 'timeoutMs': timeoutMs})
+        .timeout(Duration(milliseconds: timeoutMs + 10000),
+            onTimeout: () => {'ok': false, 'error': 'délai dépassé (chargement)'}) as Map);
     return (ok: r['ok'] == true, error: r['error'] as String?);
   }
 
   /// Exécute [js] (qui rend une chaîne JSON) et décode le résultat.
   Future<Map<String, dynamic>?> evalJson(String js) async {
-    final raw = await _ch.invokeMethod('eval', {'tab': tab, 'js': js});
+    final raw = await _ch
+        .invokeMethod('eval', {'tab': tab, 'js': js})
+        .timeout(const Duration(seconds: 20), onTimeout: () => null);
     if (raw == null || raw == 'null') return null;
     try {
       return decodeJsResult(raw as Object);
@@ -30,12 +35,19 @@ class NativeBrowser {
   }
 
   Future<({int status, String body})> fetch(Uri uri, Map<String, String> headers) async {
-    final raw = await _ch.invokeMethod('fetch', {'tab': tab, 'url': uri.toString(), 'headers': jsonEncode(headers)});
+    final raw = await _ch
+        .invokeMethod('fetch', {'tab': tab, 'url': uri.toString(), 'headers': jsonEncode(headers)})
+        .timeout(const Duration(seconds: 30),
+            onTimeout: () => jsonEncode({'status': 0, 'body': 'délai dépassé'}));
     final j = jsonDecode(raw as String) as Map<String, dynamic>;
     return (status: (j['status'] as num).toInt(), body: (j['body'] ?? '').toString());
   }
 
-  Future<void> dispose() => _ch.invokeMethod('dispose', {'tab': tab});
+  Future<void> dispose() async {
+    try {
+      await _ch.invokeMethod('dispose', {'tab': tab}).timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
 }
 
 /// Requêtes MPB depuis une page mpb.com ouverte dans une WebView sans affichage
@@ -138,12 +150,17 @@ const searchExtractionScript = r'''
 })()
 ''';
 
-/// Ajoute sort=time (plus récentes d'abord) si l'URL n'a pas de tri.
+/// Ajoute sort=time (plus récentes d'abord) si l'URL n'a pas de tri, et retire
+/// les paramètres de suivi (from, sa, saved_id_view).
 String normalizeSearchUrl(String raw) {
   final m = RegExp(r'https?://\S+').firstMatch(raw.trim());
   final uri = Uri.tryParse(m?.group(0) ?? raw.trim());
   if (uri == null) return raw.trim();
-  final q = Map<String, String>.from(uri.queryParameters);
+  final q = Map<String, String>.from(uri.queryParameters)
+    // traces de l'ouverture depuis une notification / recherche enregistrée
+    ..remove('from')
+    ..remove('sa')
+    ..remove('saved_id_view');
   q.putIfAbsent('sort', () => 'time');
   return uri.replace(queryParameters: q).toString();
 }

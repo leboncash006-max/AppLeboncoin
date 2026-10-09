@@ -8,6 +8,7 @@ import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -57,7 +58,21 @@ class HeadlessBrowser(private val context: Context) : MethodChannel.MethodCallHa
         val tab = call.argument<String>("tab") ?: "main"
         when (call.method) {
             "load" -> load(tab, call.argument<String>("url") ?: "", call.argument<Int>("timeoutMs") ?: 30000, result)
-            "eval" -> view(tab).evaluateJavascript(call.argument<String>("js") ?: "null") { v -> result.success(v) }
+            "eval" -> {
+                var answered = false
+                view(tab).evaluateJavascript(call.argument<String>("js") ?: "null") { v ->
+                    if (!answered) {
+                        answered = true
+                        result.success(v)
+                    }
+                }
+                main.postDelayed({
+                    if (!answered) {
+                        answered = true
+                        result.success(null)
+                    }
+                }, 15000)
+            }
             "fetch" -> fetch(tab, call.argument<String>("url") ?: "", call.argument<String>("headers") ?: "{}", result)
             "dispose" -> {
                 views.remove(tab)?.destroy()
@@ -82,6 +97,24 @@ class HeadlessBrowser(private val context: Context) : MethodChannel.MethodCallHa
             }
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true) finish(false, error?.description?.toString() ?: "erreur réseau")
+            }
+
+            // le moteur de la page a été tué (mémoire) : sans ce traitement, Android
+            // tuerait toute l'appli. On jette cette WebView, la suivante sera neuve.
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                finish(false, "moteur de la page arrêté")
+                views.remove(tab)
+                try {
+                    view?.destroy()
+                } catch (_: Exception) {
+                }
+                return true
+            }
+
+            // liens « intent:// » ou appli Leboncoin : on reste dans la WebView
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val scheme = request?.url?.scheme ?: return false
+                return scheme != "http" && scheme != "https"
             }
         }
         main.postDelayed({ finish(false, "délai dépassé") }, timeoutMs.toLong())
