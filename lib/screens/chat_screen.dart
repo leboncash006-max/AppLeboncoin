@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/gemini_service.dart';
 import '../services/history.dart';
+import '../services/mpb_service.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -43,7 +44,11 @@ String buildChatContext(HistoryEntry e, Settings s) {
     ..writeln('Marge estimée (reprise − prix) : '
         '${a.margin == null ? "inconnue" : "${a.margin!.toStringAsFixed(0)} €"} '
         '(seuil « bonne affaire » : ${s.minMargin.toStringAsFixed(0)} €)')
-    ..writeln('État annoncé (déduit) : ${a.conditionHint}');
+    ..writeln('État MPB retenu (d\'après l\'attribut « État » de l\'annonce) : '
+        '${a.condition == 'parts' ? 'pour pièces, aucun rachat' : mpbConditionLabels[a.condition]}')
+    ..writeln('Marge prudente (état ${mpbConditionLabels[a.prudentCondition] ?? '-'}) : '
+        '${a.prudentMargin == null ? "inconnue" : "${a.prudentMargin!.toStringAsFixed(0)} €"}')
+    ..writeln('État décrit dans le texte (déduit par IA) : ${a.conditionHint}');
   if (a.shutterCount != null) b.writeln('Déclenchements : ${a.shutterCount}');
   if (a.defects.isNotEmpty) b.writeln('Défauts signalés : ${a.defects.join(", ")}');
   b.writeln('Éléments :');
@@ -60,6 +65,14 @@ String buildChatContext(HistoryEntry e, Settings s) {
       b.write(' ; reprise estimée ${it.buyback!.toStringAsFixed(0)} € (${it.source}'
           '${it.coef != null ? ", coef ${it.coef}" : ""})');
     }
+    if (it.purchasePrices.isNotEmpty) {
+      final ladder = mpbConditions
+          .where(it.purchasePrices.containsKey)
+          .map((c) => '${mpbConditionLabels[c]} ${it.purchasePrices[c]!.toStringAsFixed(0)} €')
+          .join(', ');
+      b.write(' ; prix de reprise MPB réels par état : $ladder');
+    }
+    if (it.approximate) b.write(' ; ATTENTION estimation approximative (API MPB indisponible)');
     if (it.item.details.isNotEmpty) b.write(' ; détails : ${it.item.details}');
     b.writeln();
   }

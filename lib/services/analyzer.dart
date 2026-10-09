@@ -110,6 +110,27 @@ String _choosePrompt(String ad, List<ItemResult> items) {
 
 typedef Progress = void Function(String step);
 
+/// État MPB correspondant à l'attribut « État » de Leboncoin.
+/// « parts » = pour pièces (aucun rachat) ; état inconnu → good.
+String conditionFromAd(String attributesText) {
+  final m = RegExp(r'^\s*État\s*:\s*(.+)$', multiLine: true, caseSensitive: false)
+      .firstMatch(attributesText);
+  final v = (m?.group(1) ?? '').toLowerCase();
+  if (v.contains('pièces') || v.contains('pieces')) return 'parts';
+  if (v.contains('très bon') || v.contains('tres bon')) return 'excellent';
+  if (v.contains('neuf')) return 'like-new';
+  if (v.contains('satisfaisant')) return 'well-used';
+  if (v.contains('bon')) return 'good';
+  return 'good';
+}
+
+/// État juste en dessous (pour la marge prudente).
+String conditionBelow(String c) {
+  final i = mpbConditions.indexOf(c);
+  if (i < 0) return 'well-used';
+  return mpbConditions[(i + 1).clamp(0, mpbConditions.length - 1)];
+}
+
 class Analyzer {
   final Settings settings;
   final MpbService mpb;
@@ -181,8 +202,13 @@ class Analyzer {
       }
     }
 
-    // 4. Prix : vraie estimation, sinon revente MPB en état Bon × coefficient
+    // 4. Prix : reprise réelle MPB pour l'état annoncé ; en secours seulement,
+    //    vraie estimation enregistrée ou revente MPB en état Bon × coefficient.
     onStep?.call('Calcul des prix de reprise…');
+    final condition = conditionFromAd('$attributes\n$title');
+    final forParts = condition == 'parts';
+    final mainCond = forParts ? 'good' : condition;
+    final prudentCond = conditionBelow(mainCond);
     for (final r in results) {
       final m = r.mpbModel;
       if (m == null) {
@@ -192,17 +218,37 @@ class Analyzer {
       try {
         r.resale = await mpb.resale(m);
       } catch (e) {
-        warnings.add('Prix MPB indisponible pour $m : $e');
+        // sert seulement au nombre en vente, au lien et au calcul de secours
       }
-      if (realQuotes.containsKey(m)) {
-        r.buyback = realQuotes[m];
-        r.source = 'estimation réelle';
-      } else if (r.resale != null) {
-        r.coef = r.item.isLens ? settings.coefLens : settings.coefBody;
-        r.buyback = r.resale!.median * r.coef!;
-        r.source = 'revente × coef';
+      try {
+        r.modelId = await mpb.modelId(m);
+        if (r.modelId != null) r.purchasePrices = await mpb.purchasePrices(r.modelId!);
+      } catch (_) {
+        // l'API de reprise ne répond pas : calcul de secours plus bas
+      }
+      final real = r.purchasePrices[mainCond];
+      if (forParts) {
+        r.buyback = 0;
+        r.prudentBuyback = 0;
+        r.source = 'pour pièces';
+      } else if (real != null) {
+        r.buyback = real;
+        r.prudentBuyback = r.purchasePrices[prudentCond] ?? real;
+        r.source = 'prix MPB réel';
       } else {
-        warnings.add('Aucun $m en vente chez MPB : pas de prix de référence.');
+        if (realQuotes.containsKey(m)) {
+          r.buyback = realQuotes[m];
+          r.source = 'estimation réelle';
+        } else if (r.resale != null) {
+          r.coef = r.item.isLens ? settings.coefLens : settings.coefBody;
+          r.buyback = r.resale!.median * r.coef!;
+          r.source = 'revente × coef';
+        }
+        if (r.buyback != null) {
+          warnings.add('Prix de reprise MPB indisponible pour $m : estimation approximative.');
+        } else {
+          warnings.add('Aucun prix de référence pour $m.');
+        }
       }
       if (!r.confident) {
         warnings.add('Version incertaine pour $m : vérifie sur MPB.');
@@ -213,7 +259,9 @@ class Analyzer {
     if (defects.isNotEmpty) {
       warnings.insert(0, 'Défauts signalés : ${defects.join(", ")}');
     }
-    if (RegExp(r'pour pi[eè]ces|hors service|\bHS\b', caseSensitive: false)
+    if (forParts) {
+      warnings.insert(0, '⛔ Annoncé « pour pièces » : aucun rachat MPB (0 €).');
+    } else if (RegExp(r'pour pi[eè]ces|hors service|\bHS\b', caseSensitive: false)
         .hasMatch('$attributes\n$title')) {
       warnings.insert(0, '⛔ Annoncé « pour pièces / HS » : MPB ne le reprendra pas.');
     }
@@ -225,6 +273,8 @@ class Analyzer {
       conditionHint: (ext['condition_hint'] ?? 'inconnu').toString(),
       shutterCount: (ext['shutter_count'] as num?)?.toInt(),
       warnings: warnings,
+      condition: condition,
+      prudentCondition: forParts ? 'parts' : prudentCond,
     );
   }
 }

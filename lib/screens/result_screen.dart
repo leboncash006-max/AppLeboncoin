@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models.dart';
 import '../services/history.dart';
+import '../services/mpb_service.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -59,7 +60,8 @@ class ResultScreen extends StatelessWidget {
             _SectionTitle('Éléments identifiés', trailing: '${a.items.length}'),
             const SizedBox(height: 10),
             for (final it in a.items) ...[
-              FadeSlideIn(delay: d(), child: _ItemCard(result: it)),
+              FadeSlideIn(
+                  delay: d(), child: _ItemCard(result: it, condition: a.condition)),
               const SizedBox(height: 10),
             ],
           ],
@@ -160,7 +162,11 @@ class _Hero extends StatelessWidget {
         Row(children: [
           Pill(label: v.label, color: v.color, icon: v.icon),
           const Spacer(),
-          Text('Marge estimée', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+          Text(
+              analysis.condition == 'parts'
+                  ? 'Pour pièces'
+                  : 'Marge · état ${mpbConditionLabels[analysis.condition] ?? 'Bon'}',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
         ]),
         const SizedBox(height: 10),
         FittedBox(
@@ -194,6 +200,12 @@ class _Hero extends StatelessWidget {
             ),
           ]),
         ),
+        if (analysis.prudentMargin != null &&
+            analysis.prudentCondition != 'parts' &&
+            analysis.items.any((i) => i.realPrice)) ...[
+          const SizedBox(height: 12),
+          _PrudentRow(analysis: analysis, minMargin: minMargin),
+        ],
         if (analysis.shutterCount != null) ...[
           const SizedBox(height: 10),
           Row(children: [
@@ -205,6 +217,34 @@ class _Hero extends StatelessWidget {
         ],
       ]),
     );
+  }
+}
+
+class _PrudentRow extends StatelessWidget {
+  final Analysis analysis;
+  final double minMargin;
+  const _PrudentRow({required this.analysis, required this.minMargin});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final pm = analysis.prudentMargin!;
+    final pv = verdictFor(pm, minMargin);
+    return Row(children: [
+      Icon(Icons.shield_outlined, size: 18, color: cs.onSurfaceVariant),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          'Marge prudente (état ${mpbConditionLabels[analysis.prudentCondition] ?? '?'})',
+          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13.5),
+        ),
+      ),
+      AnimatedEuro(
+        value: pm,
+        signed: true,
+        style: TextStyle(color: pv.color, fontWeight: FontWeight.w800, fontSize: 18),
+      ),
+    ]);
   }
 }
 
@@ -336,7 +376,8 @@ class _AdCardState extends State<_AdCard> {
 
 class _ItemCard extends StatelessWidget {
   final ItemResult result;
-  const _ItemCard({required this.result});
+  final String condition;
+  const _ItemCard({required this.result, required this.condition});
 
   @override
   Widget build(BuildContext context) {
@@ -349,7 +390,6 @@ class _ItemCard extends StatelessWidget {
       _ => (Icons.devices_other_outlined, 'Autre'),
     };
     final found = r.mpbModel != null;
-    final real = r.source == 'estimation réelle';
     final url = r.resale?.productUrl;
 
     return AppCard(
@@ -399,13 +439,15 @@ class _ItemCard extends StatelessWidget {
         ]),
         const SizedBox(height: 12),
         Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          if (real)
-            const Pill(label: 'Estimation réelle', color: AppColors.good, icon: Icons.verified)
-          else if (r.coef != null)
-            Pill(
-                label: 'Revente × ${r.coef!.toStringAsFixed(2).replaceAll('.', ',')}',
-                color: cs.primary,
-                icon: Icons.calculate_outlined),
+          if (r.realPrice)
+            const Pill(label: 'Prix MPB réel', color: AppColors.good, icon: Icons.verified)
+          else if (r.source == 'pour pièces')
+            const Pill(label: 'Pour pièces : 0 €', color: AppColors.bad, icon: Icons.block)
+          else if (r.approximate)
+            const Pill(
+                label: 'Estimation approximative',
+                color: AppColors.warn,
+                icon: Icons.warning_amber_rounded),
           if (r.resale != null)
             Pill(
                 label: '${r.resale!.count} chez MPB',
@@ -414,11 +456,18 @@ class _ItemCard extends StatelessWidget {
           if (found && !r.confident)
             const Pill(label: 'Version à vérifier', color: AppColors.warn, icon: Icons.help_outline),
         ]),
-        if (r.resale != null) ...[
+        if (r.purchasePrices.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _PriceLadder(prices: r.purchasePrices, selected: condition),
+        ],
+        if (r.approximate) ...[
           const SizedBox(height: 8),
           Text(
-            'Revente MPB (${r.resale!.basis}) : ${euros(r.resale!.median)} en médiane',
-            style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
+            r.source == 'revente × coef' && r.resale != null
+                ? 'API de reprise indisponible : revente MPB (${r.resale!.basis}) '
+                    '${euros(r.resale!.median)} × ${r.coef!.toStringAsFixed(2).replaceAll('.', ',')}'
+                : 'API de reprise indisponible : ancienne estimation enregistrée',
+            style: const TextStyle(fontSize: 12.5, color: AppColors.warn),
           ),
         ],
         if (url != null)
@@ -434,5 +483,59 @@ class _ItemCard extends StatelessWidget {
           ),
       ]),
     );
+  }
+}
+
+/// Mini-échelle des 5 prix de reprise MPB, l'état retenu mis en avant.
+class _PriceLadder extends StatelessWidget {
+  final Map<String, double> prices;
+  final String selected;
+  const _PriceLadder({required this.prices, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final max = prices.values.fold<double>(0, (m, v) => v > m ? v : m);
+    return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+      for (final c in mpbConditions) ...[
+        Expanded(
+          child: Builder(builder: (context) {
+            final v = prices[c];
+            final sel = c == selected;
+            final color = sel ? cs.primary : cs.onSurfaceVariant;
+            return Column(children: [
+              Text(v == null ? '—' : euros(v),
+                  style: TextStyle(
+                      fontSize: sel ? 14 : 12.5,
+                      fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+                      color: sel ? cs.onSurface : cs.onSurfaceVariant,
+                      fontFeatures: tabular)),
+              const SizedBox(height: 4),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: (v == null || max == 0) ? 0.04 : v / max),
+                duration: const Duration(milliseconds: 700),
+                curve: Curves.easeOutCubic,
+                builder: (_, f, __) => Container(
+                  height: 6 + 30 * f,
+                  decoration: BoxDecoration(
+                    color: sel ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(mpbConditionLabels[c]!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                      color: color)),
+            ]);
+          }),
+        ),
+        if (c != mpbConditions.last) const SizedBox(width: 6),
+      ],
+    ]);
   }
 }

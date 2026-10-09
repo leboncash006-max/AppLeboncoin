@@ -5,6 +5,10 @@ combien MPB te la reprendrait, quelle marge tu peux faire, et tu peux poser des
 questions à l'IA sur l'annonce.
 
 ## Nouveautés de la v2
+- **Vrai prix de reprise MPB** : l'appli interroge l'API publique de reprise de MPB
+  (`/public-api/v1/models/purchase-price/<id>/<état>/`, en-tête `X-Market: fr`) et récupère
+  les 5 prix (Comme neuf → Très usé). La marge principale utilise l'état annoncé sur
+  Leboncoin, et une **marge prudente** utilise l'état juste en dessous.
 - **Partage direct** : dans l'appli Leboncoin, *Partager › MPB Check* lance l'analyse
   tout de suite (réception de `ACTION_SEND text/plain` via `receive_sharing_intent`).
 - **Presse-papiers** : au lancement et au retour dans l'appli, si un lien Leboncoin a été
@@ -17,8 +21,8 @@ questions à l'IA sur l'annonce.
   une vérification.
 - **Écran résultat** : marge en très gros (vert / orange / rouge) avec verdict,
   prix annonce → reprise MPB, carte annonce (état, marque, description repliable),
-  une carte par élément (nom MPB, reprise, source « estimation réelle » ou
-  « revente × coef », nombre en vente chez MPB, lien vers la page MPB), alertes en
+  une carte par élément (nom MPB, reprise, badge « Prix MPB réel », mini-échelle des
+  5 prix avec l'état retenu mis en avant, nombre en vente chez MPB, lien vers la page MPB), alertes en
   bandeaux (⛔ « pour pièces » en rouge, en haut).
 - **Historique** : les 50 dernières analyses, en local. Un appui rouvre le résultat sans
   nouvel appel ; glisser vers la gauche pour supprimer (avec « Annuler »).
@@ -35,9 +39,30 @@ questions à l'IA sur l'annonce.
 2. **Gemini Flash-Lite** comprend l'annonce : boîtier(s), objectif(s), flash, version
    exacte (IS, STM, VR…), défauts, nombre de déclenchements.
 3. **Catalogue MPB** : l'appli cherche les noms exacts chez MPB, puis Gemini choisit le bon.
-4. **Prix** : vraie estimation MPB si on l'a (`lib/data/real_quotes.dart`), sinon
-   médiane des prix de revente MPB en état Bon × 0,54 (boîtier) ou × 0,40 (objectif).
-5. **Résultat**, puis questions éventuelles à l'IA.
+4. **Prix de reprise réel** :
+   - identifiant MPB du modèle : `GET /search-service/product/query/` avec
+     `filter_query[object_type]=model` et le nom exact (marche aussi hors stock) ;
+   - 5 prix : `GET /public-api/v1/models/purchase-price/<id>/<état>/` avec `X-Market: fr`
+     (sinon prix en GBP ; la devise `EUR` est vérifiée). Appels en séquence (~300 ms
+     d'écart), cache local de 24 h par id + état ;
+   - état retenu d'après l'attribut « État » de l'annonce :
+
+     | Leboncoin | MPB |
+     |---|---|
+     | État neuf | `like-new` |
+     | Très bon état | `excellent` |
+     | Bon état | `good` |
+     | État satisfaisant | `well-used` |
+     | Pour pièces | aucun rachat (0 € + alerte ⛔) |
+     | inconnu | `good` |
+
+   - marge = reprise pour l'état annoncé − prix ; marge prudente = même calcul avec
+     l'état juste en dessous.
+   - **Secours** si l'API ne répond pas : ancienne estimation enregistrée
+     (`lib/data/real_quotes.dart`), sinon médiane de revente MPB en état Bon × 0,54
+     (boîtier) ou × 0,40 (objectif). C'est alors affiché « estimation approximative ».
+5. **Résultat**, puis questions éventuelles à l'IA (qui connaît aussi les 5 prix de
+   chaque élément).
 
 Saisie manuelle : bouton « Saisir le texte à la main » sous le champ du lien.
 
@@ -82,7 +107,7 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 
 ## Fichiers
 - `lib/services/leboncoin_reader.dart` : lecture de la page (testé sur la structure réelle le 09/10/2026)
-- `lib/services/mpb_service.dart` : API JSON de MPB (suggestions + annonces en vente)
+- `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)
 - `lib/services/gemini_service.dart` : appels Gemini (JSON imposé pour l'analyse, chat avec recherche)
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse
 - `lib/services/history.dart` : historique local (50 analyses + conversations)

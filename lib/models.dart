@@ -61,8 +61,21 @@ class ItemResult {
   String reason = '';
   ResaleStats? resale;
   double? buyback;
-  String source = ''; // "estimation réelle" | "revente × coef"
+  String source = ''; // "prix MPB réel" | secours : "estimation réelle" | "revente × coef"
   double? coef;
+
+  /// Identifiant MPB et les 5 prix de reprise réels (état API → €).
+  int? modelId;
+  Map<String, double> purchasePrices = {};
+
+  /// Reprise avec l'état juste en dessous de l'état annoncé (marge prudente).
+  double? prudentBuyback;
+
+  /// true si le prix vient de l'API de reprise MPB.
+  bool get realPrice => source == 'prix MPB réel';
+
+  /// true si le prix est un calcul de secours (API indisponible).
+  bool get approximate => buyback != null && source != 'prix MPB réel' && source != 'pour pièces';
 
   ItemResult(this.item, this.candidates);
 
@@ -76,6 +89,9 @@ class ItemResult {
         'buyback': buyback,
         'source': source,
         'coef': coef,
+        'modelId': modelId,
+        'purchasePrices': purchasePrices,
+        'prudentBuyback': prudentBuyback,
       };
 
   factory ItemResult.fromJson(Map<String, dynamic> j) {
@@ -88,7 +104,11 @@ class ItemResult {
       ..reason = (j['reason'] ?? '').toString()
       ..buyback = (j['buyback'] as num?)?.toDouble()
       ..source = (j['source'] ?? '').toString()
-      ..coef = (j['coef'] as num?)?.toDouble();
+      ..coef = (j['coef'] as num?)?.toDouble()
+      ..modelId = (j['modelId'] as num?)?.toInt()
+      ..purchasePrices = Map<String, dynamic>.from((j['purchasePrices'] as Map?) ?? {})
+          .map((k, v) => MapEntry(k, (v as num).toDouble()))
+      ..prudentBuyback = (j['prudentBuyback'] as num?)?.toDouble();
     if (j['resale'] != null) {
       r.resale = ResaleStats.fromJson(Map<String, dynamic>.from(j['resale'] as Map));
     }
@@ -104,6 +124,11 @@ class Analysis {
   final int? shutterCount;
   final List<String> warnings;
 
+  /// État MPB retenu d'après l'annonce (like-new…heavily-used, ou "parts"
+  /// pour pièces) et l'état juste en dessous pour la marge prudente.
+  final String condition;
+  final String prudentCondition;
+
   Analysis({
     required this.items,
     required this.price,
@@ -111,12 +136,20 @@ class Analysis {
     required this.conditionHint,
     required this.shutterCount,
     required this.warnings,
+    this.condition = 'good',
+    this.prudentCondition = 'well-used',
   });
 
   double get totalBuyback =>
       items.fold(0.0, (s, i) => s + (i.buyback ?? 0));
 
   double? get margin => price == null ? null : totalBuyback - price!;
+
+  /// Reprise si MPB classe le matériel un cran en dessous.
+  double get prudentTotal =>
+      items.fold(0.0, (s, i) => s + (i.prudentBuyback ?? i.buyback ?? 0));
+
+  double? get prudentMargin => price == null ? null : prudentTotal - price!;
 
   Map<String, dynamic> toJson() => {
         'items': items.map((i) => i.toJson()).toList(),
@@ -125,6 +158,8 @@ class Analysis {
         'conditionHint': conditionHint,
         'shutterCount': shutterCount,
         'warnings': warnings,
+        'condition': condition,
+        'prudentCondition': prudentCondition,
       };
 
   factory Analysis.fromJson(Map<String, dynamic> j) => Analysis(
@@ -136,5 +171,7 @@ class Analysis {
         conditionHint: (j['conditionHint'] ?? 'inconnu').toString(),
         shutterCount: (j['shutterCount'] as num?)?.toInt(),
         warnings: ((j['warnings'] as List?) ?? []).map((e) => '$e').toList(),
+        condition: (j['condition'] ?? 'good').toString(),
+        prudentCondition: (j['prudentCondition'] ?? 'well-used').toString(),
       );
 }

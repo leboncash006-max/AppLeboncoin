@@ -59,11 +59,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 16),
           AppCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('Calcul de la reprise', style: t.titleLarge?.copyWith(fontSize: 18)),
+              Text('Calcul de secours', style: t.titleLarge?.copyWith(fontSize: 18)),
               const SizedBox(height: 4),
               Text(
-                  'Reprise estimée = prix de revente MPB en état Bon × coefficient, '
-                  'quand le modèle n\'a pas de vraie estimation enregistrée.',
+                  'La reprise vient du prix réel de MPB pour l\'état de l\'annonce. '
+                  'Les coefficients ne servent que si cette API ne répond pas : '
+                  'revente MPB en état Bon × coefficient (estimation approximative).',
                   style: TextStyle(color: cs.onSurfaceVariant)),
               const SizedBox(height: 16),
               Row(children: [
