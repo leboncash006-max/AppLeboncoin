@@ -16,6 +16,12 @@ const mpbConditionLabels = {
   'heavily-used': 'Très usé',
 };
 
+/// Exécute un GET et rend le code HTTP et le corps de la réponse.
+/// Dans l'appli, les requêtes passent par une WebView ouverte sur mpb.com
+/// (voir MpbWebTransport) : l'anti-robot de MPB refuse le client HTTP de Dart.
+typedef MpbFetch = Future<({int status, String body})> Function(
+    Uri uri, Map<String, String> headers);
+
 /// Accès aux API JSON publiques de mpb.com (repérées le 09/10/2026).
 class MpbService {
   static const _host = 'www.mpb.com';
@@ -34,10 +40,25 @@ class MpbService {
   };
 
   final http.Client _client;
+  final MpbFetch? _fetch;
   final Map<String, List<String>> _suggestCache = {};
   final Map<String, ResaleStats?> _resaleCache = {};
 
-  MpbService([http.Client? client]) : _client = client ?? http.Client();
+  MpbService([http.Client? client, MpbFetch? fetch])
+      : _client = client ?? http.Client(),
+        _fetch = fetch;
+
+  Future<({int status, String body})> _send(Uri uri, Map<String, String> headers) async {
+    if (_fetch != null) {
+      // le navigateur fixe lui-même User-Agent et Accept-Language
+      final h = Map.of(headers)
+        ..remove('User-Agent')
+        ..remove('Accept-Language');
+      return _fetch(uri, h);
+    }
+    final r = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+    return (status: r.statusCode, body: utf8.decode(r.bodyBytes, allowMalformed: true));
+  }
 
   Future<dynamic> _get(String path, Map<String, dynamic> params) =>
       _getJson(Uri.https(_host, path, params), _headers);
@@ -46,20 +67,21 @@ class MpbService {
   /// requêtes…), on réessaie une fois puis on lève une erreur lisible.
   Future<dynamic> _getJson(Uri uri, Map<String, String> headers) async {
     for (var attempt = 0;; attempt++) {
-      final r = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-      final body = utf8.decode(r.bodyBytes, allowMalformed: true);
+      final r = await _send(uri, headers);
+      final body = r.body;
       final isJson = body.trimLeft().startsWith('{') || body.trimLeft().startsWith('[');
-      if (r.statusCode == 200 && isJson) return jsonDecode(body);
-      if (attempt == 0 && (!isJson || r.statusCode == 429 || r.statusCode >= 500)) {
+      if (r.status == 200 && isJson) return jsonDecode(body);
+      // (la WebView gère déjà elle-même la relance en cas de page HTML)
+      if (attempt == 0 && ((!isJson && _fetch == null) || r.status == 429 || r.status >= 500)) {
         await Future.delayed(const Duration(milliseconds: 1500));
         continue;
       }
       if (!isJson) {
         throw Exception('MPB a renvoyé une page web au lieu des données '
-            '(HTTP ${r.statusCode}) : protection anti-robot ou trop de requêtes. '
+            '(HTTP ${r.status}) : protection anti-robot ou trop de requêtes. '
             'Réessaie dans quelques minutes.');
       }
-      throw Exception('MPB a répondu ${r.statusCode}');
+      throw Exception('MPB a répondu ${r.status}');
     }
   }
 

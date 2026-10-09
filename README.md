@@ -39,7 +39,11 @@ questions à l'IA sur l'annonce.
 2. **Gemini Flash-Lite** comprend l'annonce : boîtier(s), objectif(s), flash, version
    exacte (IS, STM, VR…), défauts, nombre de déclenchements.
 3. **Catalogue MPB** : l'appli cherche les noms exacts chez MPB, puis Gemini choisit le bon.
-4. **Prix de reprise réel** :
+4. **Accès à MPB par WebView** : l'anti-robot de MPB refuse (HTTP 403) le client HTTP de
+   l'appli. Les appels MPB partent donc d'une page mpb.com ouverte dans une WebView
+   repliée (`lib/services/mpb_web_transport.dart`), comme un vrai navigateur. Si MPB
+   demande une vérification, la WebView se déplie pour que tu la fasses.
+5. **Prix de reprise réel** :
    - identifiant MPB du modèle : `GET /search-service/product/query/` avec
      `filter_query[object_type]=model` et le nom exact (marche aussi hors stock) ;
    - 5 prix : `GET /public-api/v1/models/purchase-price/<id>/<état>/` avec `X-Market: fr`
@@ -61,7 +65,7 @@ questions à l'IA sur l'annonce.
    - **Secours** si l'API ne répond pas : ancienne estimation enregistrée
      (`lib/data/real_quotes.dart`), sinon médiane de revente MPB en état Bon × 0,54
      (boîtier) ou × 0,40 (objectif). C'est alors affiché « estimation approximative ».
-5. **Résultat**, puis questions éventuelles à l'IA (qui connaît aussi les 5 prix de
+6. **Résultat**, puis questions éventuelles à l'IA (qui connaît aussi les 5 prix de
    chaque élément).
 
 Saisie manuelle : bouton « Saisir le texte à la main » sous le champ du lien.
@@ -111,6 +115,7 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 
 ## Fichiers
 - `lib/services/leboncoin_reader.dart` : lecture de la page (testé sur la structure réelle le 09/10/2026)
+- `lib/services/mpb_web_transport.dart` : requêtes MPB depuis une WebView mpb.com
 - `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)
 - `lib/services/gemini_service.dart` : appels Gemini (JSON imposé pour l'analyse, chat avec recherche)
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse

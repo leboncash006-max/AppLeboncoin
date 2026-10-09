@@ -7,6 +7,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../services/analyzer.dart';
 import '../services/history.dart';
 import '../services/leboncoin_reader.dart';
+import '../services/mpb_service.dart';
+import '../services/mpb_web_transport.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -48,6 +50,21 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   bool _webOpen = false;
   bool _cancelled = false;
   WebViewController? _web;
+
+  /// mpb.com ouvert dans une WebView : les appels MPB passent par elle.
+  late final MpbWebTransport _mpbWeb = MpbWebTransport()
+    ..onChallenge = () {
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _mpbOpen = true;
+        _mpbChallenge = true;
+        _detail = 'MPB demande une vérification : fais-la ci-dessous si elle s\'affiche.';
+      });
+    };
+  late final MpbService _mpb = MpbService(null, _mpbWeb.fetch);
+  bool _mpbOpen = false;
+  bool _mpbChallenge = false;
 
   @override
   void initState() {
@@ -139,7 +156,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     });
     final attrsText = attrs.entries.map((e) => '${e.key} : ${e.value}').join('\n');
     try {
-      final a = await Analyzer(widget.settings).analyze(title, desc, price,
+      final a = await Analyzer(widget.settings, mpb: _mpb).analyze(title, desc, price,
           attributes: attrsText, onStep: (st) {
         if (!mounted) return;
         setState(() {
@@ -240,6 +257,15 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
               ),
             ]),
           ],
+          const SizedBox(height: 14),
+          _WebPanel(
+            controller: _mpbWeb.controller,
+            open: _mpbOpen,
+            highlight: _mpbChallenge,
+            title: 'Page MPB',
+            challengeTitle: 'Vérification MPB',
+            onToggle: () => setState(() => _mpbOpen = !_mpbOpen),
+          ),
           if (_web != null) ...[
             const SizedBox(height: 14),
             _WebPanel(
@@ -354,9 +380,13 @@ class _WebPanel extends StatelessWidget {
   final WebViewController controller;
   final bool open;
   final bool highlight;
+  final String title;
+  final String challengeTitle;
   final VoidCallback onToggle;
   const _WebPanel(
       {required this.controller,
+      this.title = 'Page Leboncoin',
+      this.challengeTitle = 'Vérification Leboncoin',
       required this.open,
       required this.highlight,
       required this.onToggle});
@@ -383,7 +413,7 @@ class _WebPanel extends StatelessWidget {
                   size: 20, color: highlight ? AppColors.warn : cs.onSurfaceVariant),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(highlight ? 'Vérification Leboncoin' : 'Page Leboncoin',
+                child: Text(highlight ? challengeTitle : title,
                     style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
               AnimatedRotation(
