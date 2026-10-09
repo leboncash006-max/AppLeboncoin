@@ -25,6 +25,9 @@ for f in glob.glob(os.path.join(src, 'res', '*', '*')):
     os.makedirs(d, exist_ok=True)
     shutil.copy(f, d)
 
+# 2 bis. règles R8 (sinon WorkManager plante au démarrage en release)
+shutil.copy(os.path.join(src, 'proguard-rules.pro'), os.path.join(root, 'app', 'proguard-rules.pro'))
+
 # 3. manifeste
 mpath = os.path.join(root, 'app/src/main/AndroidManifest.xml')
 m = open(mpath, encoding='utf-8').read()
@@ -73,6 +76,10 @@ open(mpath, 'w', encoding='utf-8').write(m)
 # 4. dépendances
 gpath = os.path.join(root, 'app/build.gradle.kts')
 g = open(gpath, encoding='utf-8').read()
+if 'proguardFiles("proguard-rules.pro")' not in g:
+    g = g.replace('        release {\n', '        release {\n            proguardFiles("proguard-rules.pro")\n', 1)
+if 'proguardFiles("proguard-rules.pro")' not in g:
+    sys.exit('Règles R8 non branchées dans ' + gpath)
 if 'androidx.work:work-runtime-ktx' not in g:
     g += '''
 dependencies {

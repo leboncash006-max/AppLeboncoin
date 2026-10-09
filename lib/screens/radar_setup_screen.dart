@@ -113,7 +113,9 @@ class _RadarSetupScreenState extends State<RadarSetupScreen> with WidgetsBinding
                   'Arrière-plan non restreint',
                   'Paramètres de l\'appli › Batterie › « Non restreinte ». Sur Samsung, vérifie aussi '
                       'que MPB Check n\'est pas dans « Applications en veille » / « en veille prolongée » '
-                      '(Paramètres › Batterie › Limites d\'utilisation en arrière-plan). Sur Xiaomi : '
+                      '(Paramètres › Batterie › Limites d\'utilisation en arrière-plan). Sur Huawei : '
+                      'Paramètres › Batterie › Lancement d\'applis › MPB Check › « Gérer manuellement » '
+                      'et active les 3 options (lancement auto, secondaire, arrière-plan). Sur Xiaomi : '
                       'autorise le « Démarrage automatique ».',
                   !p.backgroundRestricted,
                   'Ouvrir les paramètres de l\'appli',

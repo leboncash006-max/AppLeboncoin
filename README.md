@@ -138,7 +138,8 @@ appuie sur « Écouter celle-ci ». Sans choix, le radar reconnaît le texte hab
 L'appli n'a pas besoin de tourner en permanence : Android garde l'écoute des notifications
 branchée et réveille l'appli à chaque notification. Pour que le système ne la coupe pas :
 accès aux notifications, optimisation de batterie désactivée, batterie « Non restreinte »
-(Samsung : retirer des applis en veille ; Xiaomi : démarrage automatique). L'écouteur se
+(Samsung : retirer des applis en veille ; Huawei : Batterie › Lancement d'applis › gérer
+manuellement, 3 options activées ; Xiaomi : démarrage automatique). L'écouteur se
 rebranche tout seul s'il est débranché, et un **chien de garde** (toutes les 15 min) envoie
 une notification **« Radar arrêté »** si l'écoute est coupée, l'accès retiré, l'arrière-plan
 restreint ou un démarrage refusé.
@@ -234,3 +235,5 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `assets/icon/` : icône de l'appli
 - `tool/patch_manifest.py` : ajouts au manifeste Android
 - `tool/patch_signing.py`, `signing/` : signature fixe de l'APK
+- `android_native/proguard-rules.pro` : règles R8 (WorkManager/Room, radar) ; sans elles
+  l'appli plante au démarrage en release
