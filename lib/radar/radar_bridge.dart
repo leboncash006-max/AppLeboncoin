@@ -52,6 +52,13 @@ class RadarBridge {
     }
   }
 
+  /// Écrit les cookies sur le disque (connexion Leboncoin conservée).
+  static Future<void> flushCookies() async {
+    try {
+      await _ch.invokeMethod('flushCookies');
+    } catch (_) {}
+  }
+
   static Future<void> openAppSettings() => _ch.invokeMethod('openAppSettings');
   static Future<void> rebind() => _ch.invokeMethod('rebind');
   static Future<void> requestNotifications() => _ch.invokeMethod('requestNotifications');

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../messages/auto_sender.dart';
+import '../messages/message_store.dart';
 import '../models.dart';
 import '../services/analyzer.dart';
 import '../services/history.dart';
@@ -68,6 +70,7 @@ class RadarEngine {
       do {
         _wakeAgain = false;
         await _processEvents();
+        await _sendQueue();
       } while (_wakeAgain);
     } catch (e) {
       await RadarDb.log('Erreur radar : $e');
@@ -76,6 +79,26 @@ class RadarEngine {
       await _liveDone();
       await _progress('Radar : terminé');
       await bg.invokeMethod('done');
+    }
+  }
+
+  /// Messages en file : envoyés quand les garde-fous le permettent. Si le
+  /// prochain est dû dans moins de 6 min, on l'attend (service toujours actif).
+  Future<void> _sendQueue() async {
+    try {
+      for (var round = 0; round < 5; round++) {
+        await AutoSender.processQueue(onLive: (t) => _live(step: t, clearAd: true));
+        final next = await MessageStore.nextQueued();
+        if (next == null) return;
+        final wait = next.difference(DateTime.now());
+        if (wait > const Duration(minutes: 6)) return;
+        if (!wait.isNegative) {
+          await _live(step: 'Prochain message dans ${wait.inSeconds} s (garde-fous)', clearAd: true);
+          await Future.delayed(wait);
+        }
+      }
+    } catch (e) {
+      await RadarDb.log('✉️ File des messages : $e');
     }
   }
 
@@ -383,7 +406,7 @@ class RadarEngine {
       await RadarDb.log('  « ${a.subject} » : analyse complète impossible ($e)');
       return true;
     }
-    await _store(s, a, full, 'full', ad.attributes, ad.description, title: ad.title);
+    final stored = await _store(s, a, full, 'full', ad.attributes, ad.description, title: ad.title);
     await RadarDb.log('  « ${a.subject} » : marge ${full.margin?.toStringAsFixed(0) ?? '?'} €');
     final fm = full.margin;
     await _live(
@@ -392,10 +415,19 @@ class RadarEngine {
             : 'Résultat : ${fm >= 0 ? '+' : ''}${fm.toStringAsFixed(0)} €'
                 '${fm >= settings.minMargin ? ' · bonne affaire 🔔' : ''}');
     await _maybeNotify(s, a, full);
+    // message au vendeur : envoi auto (toutes conditions) ou notification « À confirmer »
+    if (fm != null && fm >= settings.minMargin) {
+      try {
+        await _live(step: 'Message au vendeur : vérification des conditions');
+        await AutoSender.consider(stored, a.listId, a.url, settings.minMargin);
+      } catch (e) {
+        await RadarDb.log('✉️ Préparation du message impossible : $e');
+      }
+    }
     return true;
   }
 
-  Future<void> _store(RadarSearch s, SearchAd a, Analysis an, String stage, Map<String, String> attrs,
+  Future<HistoryEntry> _store(RadarSearch s, SearchAd a, Analysis an, String stage, Map<String, String> attrs,
       String description, {String? title}) async {
     final entry = HistoryEntry(
       id: 'radar_${a.listId}',
@@ -420,6 +452,7 @@ class RadarEngine {
       profitable: m != null && m >= _settings!.minMargin,
       entry: entry,
     );
+    return entry;
   }
 
   Future<void> _maybeNotify(RadarSearch s, SearchAd a, Analysis an, {bool provisional = false}) async {

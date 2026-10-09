@@ -75,6 +75,24 @@ object RadarNotifs {
         }
     }
 
+    /** Notification d'information (messages aux vendeurs) ; appui → appli avec [key]=[value]. */
+    fun info(ctx: Context, id: Int, title: String, text: String, key: String, value: String, high: Boolean) {
+        channels(ctx)
+        val n = NotificationCompat.Builder(ctx, if (high) CH_ALERT else CH_DEALS)
+            .setSmallIcon(R.drawable.ic_stat_radar)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(appIntent(ctx, key, value, id))
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(id, n)
+        } catch (_: SecurityException) {
+        }
+    }
+
     /** « Radar arrêté » : appui → écran de mise en route du radar. */
     fun problem(ctx: Context, title: String, text: String) {
         channels(ctx)

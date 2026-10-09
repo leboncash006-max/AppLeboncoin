@@ -5,12 +5,13 @@ import '../radar/radar_bridge.dart';
 import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import 'home_screen.dart';
+import 'messages_screen.dart';
 import 'radar_screen.dart';
 import 'radar_setup_screen.dart';
 import 'radar_verify_screen.dart';
 import 'result_screen.dart';
 
-/// Onglets « Analyse » et « Radar ». Gère aussi l'ouverture depuis une
+/// Onglets « Analyse », « Radar » et « Messages ». Gère aussi l'ouverture depuis une
 /// notification du radar (bonne affaire ou vérification Leboncoin).
 class RootScreen extends StatefulWidget {
   final Settings settings;
@@ -23,6 +24,7 @@ class RootScreen extends StatefulWidget {
 class _RootScreenState extends State<RootScreen> {
   int _tab = 0;
   bool _radarBuilt = false; // l'onglet Radar n'est construit qu'au premier affichage
+  bool _msgBuilt = false;
 
   @override
   void initState() {
@@ -61,13 +63,19 @@ class _RootScreenState extends State<RootScreen> {
     if (l == null || !mounted) return;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
+    final toMessages = l['messages'] != null || l['confirm_send'] != null;
     setState(() {
-      _tab = 1;
-      _radarBuilt = true;
+      _tab = toMessages ? 2 : 1;
+      if (toMessages) {
+        _msgBuilt = true;
+      } else {
+        _radarBuilt = true;
+      }
     });
-    final contact = l['contact'];
+    if (l['messages'] != null) return;
+    final contact = l['contact'] ?? l['confirm_send'];
     if (contact != null) {
-      // bouton « Contacter » de la notification : message copié + annonce ouverte
+      // « Contacter » / « À confirmer » : écran d'envoi du message
       final a = await RadarDb.analysis(contact);
       if (a != null && mounted) await contactSeller(context, a.entry, widget.settings.minMargin);
       return;
@@ -97,17 +105,24 @@ class _RootScreenState extends State<RootScreen> {
           RadarScreen(settings: widget.settings, visible: _tab == 1)
         else
           const SizedBox.shrink(),
+        if (_msgBuilt || _tab == 2)
+          MessagesScreen(settings: widget.settings, visible: _tab == 2)
+        else
+          const SizedBox.shrink(),
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() {
           _tab = i;
           if (i == 1) _radarBuilt = true;
+          if (i == 2) _msgBuilt = true;
         }),
         height: 66,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: 'Analyse'),
           NavigationDestination(icon: Icon(Icons.radar_outlined), selectedIcon: Icon(Icons.radar), label: 'Radar'),
+          NavigationDestination(
+              icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Messages'),
         ],
       ),
     );

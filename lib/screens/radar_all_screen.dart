@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../messages/message_store.dart';
 import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import '../theme.dart';
@@ -25,6 +26,7 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
   int? _search;
   List<RadarSearch> _searches = [];
   List<RadarAnalysis> _analyses = [];
+  Set<String> _contacted = {};
   List<SeenAd> _seen = [];
 
   @override
@@ -38,10 +40,12 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
     _sort = await RadarDb.feedSort();
     final analyses = await RadarDb.analyses(searchId: _search, sort: _sort);
     final seen = await RadarDb.seenAds(searchId: _search);
+    final contacted = await MessageStore.contacted(analyses.map((a) => a.listId).toList());
     if (!mounted) return;
     setState(() {
       _searches = searches;
       _analyses = analyses;
+      _contacted = contacted;
       _seen = seen;
     });
   }
@@ -157,7 +161,11 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
               const SizedBox(height: 10),
               if (analyses.isEmpty) _empty(cs),
               for (final a in analyses) ...[
-                _AnalysisTile(a: a, minMargin: widget.settings.minMargin, onTap: () => _openAnalysis(a)),
+                _AnalysisTile(
+                    a: a,
+                    minMargin: widget.settings.minMargin,
+                    contacted: _contacted.contains(a.listId),
+                    onTap: () => _openAnalysis(a)),
                 const SizedBox(height: 8),
               ],
             ] else ...[
@@ -206,7 +214,8 @@ class _AnalysisTile extends StatelessWidget {
   final RadarAnalysis a;
   final double minMargin;
   final VoidCallback onTap;
-  const _AnalysisTile({required this.a, required this.minMargin, required this.onTap});
+  final bool contacted;
+  const _AnalysisTile({required this.a, required this.minMargin, required this.onTap, this.contacted = false});
 
   @override
   Widget build(BuildContext context) {
@@ -226,7 +235,7 @@ class _AnalysisTile extends StatelessWidget {
               Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               const SizedBox(height: 3),
-              Text('${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)} · $stage',
+              Text('${contacted ? '✉️ Contacté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)} · $stage',
                   maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
             ]),

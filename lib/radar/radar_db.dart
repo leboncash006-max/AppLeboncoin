@@ -149,6 +149,12 @@ const _dealsTable = '''CREATE TABLE deals(
   bought_price REAL, bought_at INTEGER, estimated REAL, sold_price REAL, sold_at INTEGER,
   sold_where TEXT, note TEXT, entry TEXT)''';
 
+/// Messages aux vendeurs (envois, file d'attente, test à blanc).
+const messagesTable = '''CREATE TABLE messages(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, list_id TEXT, url TEXT, title TEXT, seller TEXT,
+  offer REAL, text TEXT, status TEXT, step TEXT, error TEXT, auto INTEGER,
+  created_at INTEGER, not_before INTEGER, sent_at INTEGER)''';
+
 /// Stockage sqflite du radar (partagé par l'appli et le service en arrière-plan).
 class RadarDb {
   static Database? _db;
@@ -156,15 +162,17 @@ class RadarDb {
   static Future<Database> get db async {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'radar.db');
-    _db = await openDatabase(path, version: 3, onUpgrade: (d, from, to) async {
+    _db = await openDatabase(path, version: 4, onUpgrade: (d, from, to) async {
       if (from < 2) {
         for (final c in ['title TEXT', 'price REAL', 'url TEXT', 'published_at INTEGER', 'reason TEXT']) {
           await d.execute('ALTER TABLE seen_ads ADD COLUMN $c');
         }
       }
       if (from < 3) await d.execute(_dealsTable);
+      if (from < 4) await d.execute(messagesTable);
     }, onCreate: (d, _) async {
       await d.execute(_dealsTable);
+      await d.execute(messagesTable);
       await d.execute('''CREATE TABLE searches(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, url TEXT, active INTEGER,
         max_price REAL, category TEXT, checkpoint INTEGER, last_loaded_at INTEGER,

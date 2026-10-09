@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../messages/message_store.dart';
 import '../radar/radar_bridge.dart';
 import '../radar/radar_db.dart';
 import '../services/settings.dart';
@@ -32,6 +33,7 @@ class RadarScreen extends StatefulWidget {
 
 class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
   List<RadarAnalysis> _feed = [];
+  Set<String> _contacted = {};
   List<RadarSearch> _searches = [];
   int? _filter;
   String _sort = 'recent';
@@ -83,6 +85,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
     final searches = await RadarDb.searches();
     _sort = await RadarDb.feedSort();
     final feed = await RadarDb.analyses(searchId: _filter, sort: _sort);
+    final contacted = await MessageStore.contacted(feed.map((a) => a.listId).toList());
     final today = await RadarDb.today();
     var state = await RadarDb.state();
     if (perms != null && !perms.enabled) state = RadarState.off;
@@ -91,6 +94,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
       _perms = perms;
       _searches = searches;
       _feed = feed;
+      _contacted = contacted;
       _today = today;
       _state = state;
     });
@@ -292,6 +296,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
                   minMargin: widget.settings.minMargin,
                   onTap: () => _open(a),
                   onLongPress: () => _delete(a),
+                  contacted: _contacted.contains(a.listId),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -411,7 +416,9 @@ class _FeedTile extends StatelessWidget {
   final double minMargin;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  const _FeedTile({required this.a, required this.minMargin, required this.onTap, required this.onLongPress});
+  final bool contacted;
+  const _FeedTile(
+      {required this.a, required this.minMargin, required this.onTap, required this.onLongPress, this.contacted = false});
 
   @override
   Widget build(BuildContext context) {
@@ -442,7 +449,7 @@ class _FeedTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 const SizedBox(height: 3),
-                Text('${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
+                Text('${contacted ? '✉️ Contacté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),

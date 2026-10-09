@@ -16,6 +16,8 @@ import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'chat_screen.dart';
+import '../messages/message_store.dart';
+import 'send_screen.dart';
 import 'deals_screen.dart';
 
 const mpbSellUrl = 'https://www.mpb.com/fr-fr/vente-ou-reprise';
@@ -23,14 +25,12 @@ const mpbSellUrl = 'https://www.mpb.com/fr-fr/vente-ou-reprise';
 void openExternal(String url) =>
     launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 
-/// Copie le message pour le vendeur et ouvre l'annonce (on colle dans Leboncoin).
-Future<void> contactSeller(BuildContext context, HistoryEntry e, double minMargin) async {
-  await Clipboard.setData(ClipboardData(text: sellerMessage(e, minMargin)));
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Message copié : colle-le dans la messagerie Leboncoin.')));
-  }
-  if (e.url.isNotEmpty) openExternal(e.url);
+/// « Message vendeur » : rédaction + envoi dans la WebView de l'appli
+/// (selon le mode choisi : je confirme, envoi direct ou test à blanc).
+Future<void> contactSeller(BuildContext context, HistoryEntry e, double minMargin, {SellerMessage? existing}) async {
+  if (e.url.isEmpty) return;
+  await Navigator.push(context,
+      MaterialPageRoute(builder: (_) => SendScreen(entry: e, minMargin: minMargin, existing: existing)));
 }
 
 /// Résultat d'une analyse (nouvelle ou rouverte depuis l'historique).
@@ -47,11 +47,25 @@ class _ResultScreenState extends State<ResultScreen> {
   HistoryEntry get entry => widget.entry;
   Settings get settings => widget.settings;
   Deal? _deal;
+  SellerMessage? _msg; // dernier message au vendeur pour cette annonce
 
   @override
   void initState() {
     super.initState();
     _loadDeal();
+    _loadMsg();
+  }
+
+  Future<void> _loadMsg() async {
+    try {
+      final m = await MessageStore.forAd(listIdOf(entry));
+      if (mounted) setState(() => _msg = m);
+    } catch (_) {}
+  }
+
+  Future<void> _contact() async {
+    await contactSeller(context, entry, settings.minMargin);
+    _loadMsg();
   }
 
   Future<void> _loadDeal() async {
@@ -186,11 +200,17 @@ class _ResultScreenState extends State<ResultScreen> {
               Row(children: [
                 if (entry.url.isNotEmpty) ...[
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => contactSeller(context, entry, settings.minMargin),
-                      icon: const Icon(Icons.send_outlined, size: 20),
-                      label: const Text('Message vendeur'),
-                    ),
+                    child: _msg?.status == MsgStatus.sent
+                        ? FilledButton.tonalIcon(
+                            onPressed: _contact,
+                            icon: const Icon(Icons.mark_email_read_outlined, size: 20),
+                            label: const Text('Contacté ✓'),
+                          )
+                        : FilledButton.icon(
+                            onPressed: _contact,
+                            icon: const Icon(Icons.send_outlined, size: 20),
+                            label: const Text('Message vendeur'),
+                          ),
                   ),
                   const SizedBox(width: 10),
                 ],
@@ -209,6 +229,15 @@ class _ResultScreenState extends State<ResultScreen> {
                         ),
                 ),
               ]),
+              if (_msg != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '✉️ ${MsgStatus.label(_msg!.status)} · ${shortDate(_msg!.sentAt ?? _msg!.createdAt)}'
+                  '${_msg!.offer == null ? '' : ' · proposé ${euros(_msg!.offer)}'}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              ],
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () => Navigator.push(

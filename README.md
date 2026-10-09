@@ -185,6 +185,74 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
 - `lib/radar/` : base de données, moteur, navigateur sans affichage, pont Android.
 - `lib/screens/radar_*.dart` : écrans du radar.
 
+## Messages aux vendeurs
+
+Onglet **Messages** (3e menu) :
+
+- **Compte Leboncoin** : « Se connecter à Leboncoin » ouvre la page de connexion dans une
+  WebView visible. Tu tapes toi-même tes identifiants ; l'appli ne lit ni n'enregistre jamais
+  le mot de passe. Seuls les cookies de session sont gardés (comme dans un navigateur).
+  L'indicateur affiche **Connecté / Non connecté**.
+- **Envoi auto** : l'interrupteur général de l'envoi automatique. La carte affiche aussi le mode,
+  le test à blanc, le compteur du jour et le bandeau « suspendu » avec le bouton **Réactiver**.
+- **Liste des envois** : statut (en file, à confirmer, envoyé, test à blanc, échec, annulé),
+  annonce, prix proposé, texte et date. Touche un envoi pour voir l'annonce, copier le texte,
+  reprendre, annuler, ou le marquer comme envoyé.
+
+**Message vendeur** (écran résultat ou notification) ouvre l'envoi en plein écran. La page
+Leboncoin reste visible. La progression suit les étapes « Ouverture de l'annonce → Contact →
+Message écrit → Envoyé ». Le bouton **STOP** arrête l'envoi à tout moment. L'annonce passe en
+« Contacté » dans le fil Radar et sur l'écran résultat.
+
+### Réglages (icône ⚙ de l'onglet)
+
+- **Mode** : *toujours confirmer* (par défaut : l'appli écrit le message, tu appuies sur
+  « Envoyer »), *envoi direct*, ou *automatique pour les bonnes affaires*.
+- **Test à blanc** (activé par défaut) : l'appli fait tout sauf le clic final sur
+  « Envoyer ». **Commence par là** et vérifie dans la liste que les essais finissent en
+  « Test à blanc ».
+- Ton (poli, amical, direct), vouvoiement ou tutoiement, proposition de prix (le prix conseillé
+  quand il est sous le prix demandé), consignes perso. Gemini rédige chaque message à neuf, donc
+  jamais deux fois le même texte. Si Gemini échoue, un modèle de texte tiré au hasard sert de repli.
+
+### Mode automatique
+
+Le radar envoie seul **uniquement si tout est réuni** :
+
+- marge au-dessus du seuil ;
+- verdict IA « oui » (l'identification correspond à l'annonce) ;
+- aucune alerte (pièces, défaut, version incertaine) ;
+- annonce jamais contactée ;
+- prix connu.
+
+Sinon, tu reçois une notification « À confirmer ». Après l'envoi : « Message envoyé à … (proposé
+120 €) ».
+
+### Comment l'envoi fonctionne
+
+Les boutons sont trouvés par leur texte (« Envoyer un message », « Contacter », « Message »).
+Une liste noire exclut tout bouton d'offre, de réservation, d'achat ou de paiement.
+
+Le texte est écrit avec le setter natif, suivi des événements input et change. Le message n'est
+marqué envoyé qu'après avoir été vu dans la conversation. Si une étape échoue, l'envoi s'arrête,
+la page reste affichée, et le journal note l'étape, les boutons vus et un extrait de la page.
+
+**Vérification anti-robot ou page de connexion** : l'envoi s'arrête aussitôt et tu reçois une
+notification « Action requise ». L'appli ne la contourne jamais : c'est à toi de la faire.
+
+### Garde-fous (codés en dur, seul le plafond est réglable)
+
+- 10 messages automatiques par jour au plus (réglable jusqu'à 20) et 3 par heure ;
+- au moins 3 min entre deux envois, plus 20 à 90 s au hasard, et 1 à 3 s entre les étapes ;
+- aucun envoi automatique entre 22 h et 8 h : les messages sont mis en file pour 8 h ;
+- un seul contact par annonce, et un seul par vendeur sur 24 h ;
+- 2 échecs de suite ou une vérification anti-robot suspendent l'envoi auto jusqu'à ce que tu le
+  réactives.
+
+⚠️ Les conditions d'utilisation de Leboncoin peuvent interdire l'automatisation de la messagerie,
+et des envois en série peuvent faire suspendre le compte. Garde des plafonds bas et préfère le
+mode « toujours confirmer ».
+
 ## Acheter et revendre
 
 - **Prix d'achat max** (écran résultat) : reprise MPB − ta marge mini, arrondi aux 5 € ; plus
@@ -207,8 +275,8 @@ après une relance de 4 s). La clé qui marche est gardée pour la suite ; si to
 court de quota, un message clair s'affiche.
 
 Pour le chat (`GeminiService.chat`) : texte libre, sans `responseSchema`, avec l'outil
-`google_search`. Si le modèle refuse l'outil, l'appel est refait avec
-`gemini-flash-latest`, puis sans outil en dernier recours. Un quota dépassé (429) affiche
+`google_search`. Modèle `gemini-flash-lite-latest` partout (analyse, chat, messages) ;
+si le modèle refuse l'outil, l'appel est refait sans outil. Un quota dépassé (429) affiche
 un message clair.
 
 **Garde le dépôt privé.** En offre gratuite, Google peut utiliser les textes envoyés.
@@ -255,6 +323,7 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse
 - `lib/services/history.dart` : historique local (50 analyses + conversations)
 - `lib/screens/` : accueil, analyse, résultat, questions, réglages
+- `lib/messages/`, `lib/screens/messages_screen.dart`, `send_screen.dart` : messages aux vendeurs (rédaction, automate, garde-fous)
 - `lib/theme.dart`, `lib/widgets/common.dart` : thème et composants
 - `assets/icon/` : icône de l'appli
 - `tool/patch_manifest.py` : ajouts au manifeste Android

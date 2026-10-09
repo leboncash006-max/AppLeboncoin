@@ -23,8 +23,6 @@ class ChatReply {
   ChatReply(this.text, this.sources, this.searched);
 }
 
-/// Modèle de repli quand le modèle principal refuse l'outil Google Search.
-const chatSearchFallbackModel = 'gemini-flash-latest';
 
 /// Appel à l'API Gemini avec réponse JSON imposée par un schéma.
 /// - Modèles essayés dans l'ordre de [geminiModels] (repli si l'alias n'existe pas).
@@ -44,8 +42,10 @@ class GeminiService {
         models = models ?? geminiModels,
         _client = client ?? http.Client();
 
-  Future<Map<String, dynamic>> generateJson(
-      String prompt, Map<String, dynamic> schema) async {
+  /// [temperature] : 0 pour l'analyse (réponses stables), plus haut pour les
+  /// messages aux vendeurs (jamais deux textes identiques).
+  Future<Map<String, dynamic>> generateJson(String prompt, Map<String, dynamic> schema,
+      {double temperature = 0}) async {
     final modelOrder = [
       if (_workingModel != null) _workingModel!,
       ...models.where((m) => m != _workingModel),
@@ -54,7 +54,7 @@ class GeminiService {
       var quotaHits = 0;
       while (_keyIndex < keys.length) {
         try {
-          final res = await _call(keys[_keyIndex], model, prompt, schema);
+          final res = await _call(keys[_keyIndex], model, prompt, schema, temperature: temperature);
           _workingModel = model;
           return res;
         } on _KeyError {
@@ -76,7 +76,7 @@ class GeminiService {
   }
 
   Future<Map<String, dynamic>> _call(String key, String model, String prompt,
-      Map<String, dynamic> schema) async {
+      Map<String, dynamic> schema, {double temperature = 0}) async {
     final uri = Uri.https('generativelanguage.googleapis.com',
         '/v1beta/models/$model:generateContent');
     final body = jsonEncode({
@@ -89,7 +89,7 @@ class GeminiService {
         }
       ],
       'generationConfig': {
-        'temperature': 0,
+        'temperature': temperature,
         'responseMimeType': 'application/json',
         'responseSchema': schema,
       },
@@ -160,8 +160,7 @@ class GeminiService {
   // ------------------------------------------------------------------ chat
 
   /// Conversation libre (pas de responseSchema) avec l'outil Google Search.
-  /// Ordre : modèle habituel + recherche → [chatSearchFallbackModel] + recherche
-  /// → modèle habituel sans outil. Mêmes clés (et bascule sur quota) que [generateJson].
+  /// Ordre : modèles flash-lite de [geminiModels] avec recherche, puis sans outil. Mêmes clés (et bascule sur quota) que [generateJson].
   Future<ChatReply> chat(
       String systemInstruction, List<({String role, String text})> turns) async {
     final primary = [
@@ -170,7 +169,6 @@ class GeminiService {
     ];
     final attempts = <({String model, bool search})>[
       for (final m in primary) (model: m, search: true),
-      (model: chatSearchFallbackModel, search: true),
       for (final m in primary) (model: m, search: false),
     ];
     Object? lastError;

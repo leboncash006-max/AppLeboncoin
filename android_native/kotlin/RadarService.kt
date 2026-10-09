@@ -90,6 +90,18 @@ class RadarService : Service() {
                     )
                     result.success(null)
                 }
+                "notifyInfo" -> {
+                    RadarNotifs.info(
+                        this,
+                        call.argument<Int>("id") ?: 4200,
+                        call.argument<String>("title") ?: "",
+                        call.argument<String>("text") ?: "",
+                        call.argument<String>("key") ?: "messages",
+                        call.argument<String>("value") ?: "1",
+                        call.argument<Boolean>("high") ?: false
+                    )
+                    result.success(null)
+                }
                 "notifyVerify" -> {
                     RadarNotifs.verify(this, call.argument<String>("url") ?: "https://www.leboncoin.fr")
                     result.success(null)
