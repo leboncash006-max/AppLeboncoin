@@ -1,5 +1,6 @@
 import '../data/real_quotes.dart';
 import '../models.dart';
+import 'corrections.dart';
 import 'gemini_service.dart';
 import 'local_identifier.dart';
 import 'mpb_catalog.dart';
@@ -259,6 +260,17 @@ class Analyzer {
       }
     } // fin de l'identification par Gemini
 
+    // 3 bis. corrections faites à la main (« Pas le bon modèle ? »)
+    final corrections = await Corrections.load();
+    for (final r in results) {
+      final fixed = corrections[r.mpbModel];
+      if (fixed != null) {
+        r.mpbModel = fixed;
+        r.confident = true;
+        r.reason = 'Correction enregistrée';
+      }
+    }
+
     // 4. Prix : reprise réelle MPB pour l'état annoncé ; en secours seulement,
     //    vraie estimation enregistrée ou revente MPB en état Bon × coefficient.
     onStep?.call('Calcul des prix de reprise…');
@@ -337,4 +349,34 @@ class Analyzer {
       prudentCondition: forParts ? 'parts' : prudentCond,
     );
   }
+}
+
+/// Recalcule un élément avec un autre modèle MPB (correction à la main) :
+/// prix de reprise réels pour [condition], marge prudente, nombre en vente.
+Future<void> repriceItem(ItemResult r, String model, String condition, MpbService mpb) async {
+  r.mpbModel = model;
+  r.confident = true;
+  r.reason = 'Corrigé à la main';
+  r.coef = null;
+  r.candidates
+    ..clear()
+    ..add(model);
+  r.resale = null;
+  r.purchasePrices = {};
+  try {
+    r.resale = await mpb.resale(model);
+  } catch (_) {}
+  r.modelId = await mpb.modelId(model);
+  if (r.modelId != null) r.purchasePrices = await mpb.purchasePrices(r.modelId!);
+  if (condition == 'parts') {
+    r.buyback = 0;
+    r.prudentBuyback = 0;
+    r.source = 'pour pièces';
+    return;
+  }
+  final real = r.purchasePrices[condition];
+  if (real == null) throw Exception('Prix de reprise MPB indisponible pour $model');
+  r.buyback = real;
+  r.prudentBuyback = r.purchasePrices[conditionBelow(condition)] ?? real;
+  r.source = 'prix MPB réel';
 }

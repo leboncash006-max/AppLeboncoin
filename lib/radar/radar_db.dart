@@ -143,6 +143,12 @@ class RadarLogRow {
 /// État du radar.
 enum RadarState { active, paused, verify, off }
 
+/// Mes achats-reventes (suivi du bénéfice réel).
+const _dealsTable = '''CREATE TABLE deals(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT, title TEXT, url TEXT,
+  bought_price REAL, bought_at INTEGER, estimated REAL, sold_price REAL, sold_at INTEGER,
+  sold_where TEXT, note TEXT, entry TEXT)''';
+
 /// Stockage sqflite du radar (partagé par l'appli et le service en arrière-plan).
 class RadarDb {
   static Database? _db;
@@ -150,13 +156,15 @@ class RadarDb {
   static Future<Database> get db async {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'radar.db');
-    _db = await openDatabase(path, version: 2, onUpgrade: (d, from, to) async {
+    _db = await openDatabase(path, version: 3, onUpgrade: (d, from, to) async {
       if (from < 2) {
         for (final c in ['title TEXT', 'price REAL', 'url TEXT', 'published_at INTEGER', 'reason TEXT']) {
           await d.execute('ALTER TABLE seen_ads ADD COLUMN $c');
         }
       }
+      if (from < 3) await d.execute(_dealsTable);
     }, onCreate: (d, _) async {
+      await d.execute(_dealsTable);
       await d.execute('''CREATE TABLE searches(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, url TEXT, active INTEGER,
         max_price REAL, category TEXT, checkpoint INTEGER, last_loaded_at INTEGER,
@@ -298,8 +306,18 @@ class RadarDb {
     return rows.isEmpty ? null : RadarAnalysis.fromRow(rows.first);
   }
 
-  static Future<void> updateEntry(String listId, HistoryEntry e) async => (await db).update(
-      'analyses', {'entry': jsonEncode(e.toJson())}, where: 'list_id = ?', whereArgs: [listId]);
+  static Future<void> updateEntry(String listId, HistoryEntry e, {double? minMargin}) async {
+    final m = e.analysis.margin;
+    await (await db).update(
+        'analyses',
+        {
+          'entry': jsonEncode(e.toJson()),
+          if (minMargin != null) 'margin': m,
+          if (minMargin != null) 'profitable': m != null && m >= minMargin ? 1 : 0,
+        },
+        where: 'list_id = ?',
+        whereArgs: [listId]);
+  }
 
   static Future<({int seen, int analyzed, RadarAnalysis? best})> today() async {
     final d = await db;

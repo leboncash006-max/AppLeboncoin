@@ -74,7 +74,10 @@ class SearchAd {
   final String listId;
   final String subject;
   final double? price;
+  /// Date de mise en tête de liste (remontée incluse), sinon de publication.
   final DateTime? date;
+  /// Date de première publication.
+  final DateTime? firstPublished;
   final String categoryId;
   final String url;
   final Map<String, String> attributes;
@@ -85,6 +88,7 @@ class SearchAd {
         subject = (j['subject'] ?? '').toString(),
         price = (j['price'] as num?)?.toDouble(),
         date = DateTime.tryParse((j['date'] ?? '').toString()),
+        firstPublished = DateTime.tryParse((j['first'] ?? '').toString()),
         categoryId = '${j['category_id'] ?? ''}',
         url = (j['url'] ?? '').toString(),
         attributes = Map<String, dynamic>.from((j['attributes'] as Map?) ?? {})
@@ -115,7 +119,9 @@ const searchExtractionScript = r'''
             list_id: a.list_id,
             subject: a.subject || '',
             price: Array.isArray(a.price) ? a.price[0] : (typeof a.price === 'number' ? a.price : null),
-            date: a.first_publication_date || '',
+            // index_date = date de mise en tête (annonce remontée), c'est l'ordre de « sort=time »
+            date: a.index_date || a.first_publication_date || '',
+            first: a.first_publication_date || '',
             category_id: a.category_id || '',
             url: a.url || '',
             attributes: attrs,

@@ -44,8 +44,9 @@ questions à l'IA sur l'annonce.
    repliée (`lib/services/mpb_web_transport.dart`), comme un vrai navigateur. Si MPB
    demande une vérification, la WebView se déplie pour que tu la fasses.
 5. **Identification sans IA (par défaut)** : `lib/services/local_identifier.dart` reconnaît
-   boîtiers (marque + référence : 1200D, A68, X-T3, a7 III…), objectifs (focale 18-55,
-   départagée par l'ouverture et IS/STM/VR/II…), flashs, défauts (HS, pour pièces,
+   boîtiers (marque + référence : 1200D, A68, X-T3, a7 III…), objectifs (marque citée +
+   focale 18-55, départagée par l'ouverture et IS/STM/VR/II ; focale fixe : ouverture
+   exigée, car « 55mm » seul est souvent un filtre ; montures anciennes FD/FL/M42 respectées), flashs, défauts (HS, pour pièces,
    champignon, rayure…, en ignorant « aucune rayure »), déclenchements et état, avec le
    catalogue MPB local. **Aucun appel à Gemini** quand quelque chose est reconnu ; Gemini ne
    sert qu'en secours (rien reconnu, catalogue absent). Réglages › « Identification sans IA ».
@@ -118,7 +119,9 @@ déclencheur : il ouvre la recherche, trouve les nouvelles annonces et les analy
 - **Nouvelles annonces** : la 1re fois, les **3 plus récentes** ; ensuite, **toutes celles
   parues depuis la dernière vue** (point de reprise enregistré par recherche + table des
   annonces vues). Les annonces boostées, en tête mais souvent anciennes, sont triées par date.
-  Gardées si : jamais vue, prix ≤ max, bonne catégorie, publiée il y a moins de 24 h.
+  Gardées si : jamais vue, prix ≤ max, bonne catégorie, publiée (ou **remontée en tête**,
+  `index_date`) il y a moins de 24 h. Une notification déclencheur dont le titre ne
+  correspond à aucun nom lance toutes les recherches actives.
 - **Analyse en 2 temps** : (a) pré-analyse sur titre + attributs (Gemini + prix MPB réel) ;
   si la marge provisoire < seuil − 15 €, on s'arrête là ; (b) sinon la page de l'annonce est
   ouverte et analysée avec sa description.
@@ -181,6 +184,20 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
   dépendances androidx).
 - `lib/radar/` : base de données, moteur, navigateur sans affichage, pont Android.
 - `lib/screens/radar_*.dart` : écrans du radar.
+
+## Acheter et revendre
+
+- **Prix d'achat max** (écran résultat) : reprise MPB − ta marge mini, arrondi aux 5 € ; plus
+  la version prudente (état juste en dessous) et le prix à proposer au vendeur.
+- **Message vendeur** : message prêt (« toujours disponible ? Je vous propose X € ») copié,
+  puis l'annonce s'ouvre ; il suffit de le coller dans la messagerie Leboncoin. Aussi via le
+  bouton **Contacter** des notifications de bonnes affaires.
+- **Mes affaires** (icône carton, onglet Analyse ; ou menu Radar) : « Je l'ai acheté » sur un
+  résultat, puis « Marquer comme vendu » (prix, MPB / Leboncoin / eBay…). Bénéfice réalisé,
+  bénéfice du mois, stock et sa reprise estimée, bénéfice moyen.
+- **Pas le bon modèle ?** (carte d'un élément) : choisis le bon nom dans le catalogue MPB ;
+  les prix de reprise réels sont recalculés et la correction est retenue pour les analyses
+  suivantes (`lib/services/corrections.dart`).
 
 ## Clés et modèles Gemini
 Dans `lib/secrets.dart` : modèle `gemini-flash-lite-latest` (repli automatique sur

@@ -147,9 +147,20 @@ class RadarEngine {
           await RadarDb.log('Première notification Leboncoin : package « $pkg »');
         }
         final match = searches.where((s) => normTitle(s.name) == normTitle(title)).toList();
+        // (titre « objectif », « TOUTES CATÉGORIES »… = nom de la recherche enregistrée)
         await RadarDb.addNotif(title, text, pkg, match.isEmpty ? null : match.first.id, at);
         if (match.isEmpty) {
-          await RadarDb.log('Notif « $title » : aucune recherche surveillée de ce nom');
+          // c'est bien la notification déclencheur (filtrée côté Android), mais son
+          // titre ne correspond à aucun nom : on lance toutes les recherches actives
+          final actives = searches.where((x) => x.active).toList();
+          // titre ou texte qui CONTIENT le nom d'une recherche
+          final loose = actives
+              .where((x) => normTitle('$title $text').contains(normTitle(x.name)))
+              .toList();
+          final run = loose.isNotEmpty ? loose : actives;
+          toRun.addAll(run.map((x) => x.id!));
+          await RadarDb.log('Notif « $title » : pas de recherche de ce nom exact → '
+              '${run.map((x) => '« ${x.name} »').join(', ')}');
           continue;
         }
         for (final s in match) {

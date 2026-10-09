@@ -10,6 +10,7 @@ import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'analysis_screen.dart';
+import 'deals_screen.dart';
 import 'export_pdf.dart';
 import 'result_screen.dart';
 import 'settings_screen.dart';
@@ -218,6 +219,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const Text('MPB Check'),
         ]),
         actions: [
+          IconButton(
+            tooltip: 'Mes affaires',
+            icon: const Icon(Icons.inventory_2_outlined),
+            onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => DealsScreen(settings: s))),
+          ),
           IconButton(
             tooltip: 'Réglages',
             icon: const Icon(Icons.tune),

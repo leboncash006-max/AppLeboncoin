@@ -51,8 +51,14 @@ class LocalIdentifier {
     for (final m in _models.where((m) => m.kind == _Kind.lens)) {
       if (m.focal == null || !ad.focals.contains(m.focal)) continue;
       final brandKnown = ad.brands.contains(m.brand);
-      if (!brandKnown && _thirdParty.contains(m.brand)) continue;
-      if (!brandKnown && ad.brands.isNotEmpty) continue;
+      // un objectif exige sa marque dans l'annonce (« 55mm » seul = souvent un filtre)
+      if (!brandKnown) continue;
+      // focale fixe : il faut aussi l'ouverture (« 50mm 1.8 »), sinon trop ambigu
+      final prime = !m.focal!.contains('-');
+      if (prime && m.apertures.isNotEmpty && !m.apertures.any(ad.has)) continue;
+      // montures anciennes citées (FD, FL, AI, M42…) : seulement les objectifs de cette monture
+      final vintage = _vintageMounts.where(ad.has).toList();
+      if (vintage.isNotEmpty && !vintage.any((v) => m.lower.contains(v))) continue;
       if (!allowSpecial && special.hasMatch(m.lower)) continue;
       var score = 10.0 + (brandKnown ? 3 : 0);
       for (final a in m.apertures) {
@@ -225,7 +231,9 @@ const _brandAliases = {
   '7artisans': '7artisans',
 };
 
-const _thirdParty = {'sigma', 'tamron', 'tokina', 'samyang', 'zeiss', 'voigtlander', 'viltrox', 'laowa', 'meike', 'ttartisan', '7artisans'};
+/// Montures anciennes : si l'annonce en cite une, l'objectif doit être de cette monture.
+const _vintageMounts = ['fd', 'fl', 'nfd', 'ais', 'm42', 'pk'];
+
 
 /// Mots qui désignent des accessoires sans intérêt : exclus du catalogue local.
 final _accessory = RegExp(

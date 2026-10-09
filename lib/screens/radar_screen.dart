@@ -8,6 +8,7 @@ import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/radar_live_card.dart';
+import 'deals_screen.dart';
 import 'export_pdf.dart';
 import 'radar_all_screen.dart';
 import 'radar_log_screen.dart';
@@ -132,6 +133,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
           PopupMenuButton<String>(
             onSelected: (v) => switch (v) {
               'all' => _push(RadarAllScreen(settings: widget.settings)),
+              'deals' => _push(DealsScreen(settings: widget.settings)),
               'pdf' => showExportSheet(context, widget.settings),
               'test' => _push(const RadarTestScreen()),
               'trigger' => _push(const RadarTriggerScreen()),
@@ -143,6 +145,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'run', child: Text('Lancer maintenant')),
               PopupMenuItem(value: 'all', child: Text('Toutes les annonces')),
+              PopupMenuItem(value: 'deals', child: Text('Mes affaires')),
               PopupMenuItem(value: 'pdf', child: Text('Exporter en PDF')),
               PopupMenuItem(value: 'test', child: Text('Test global')),
               PopupMenuItem(value: 'trigger', child: Text('Notification à écouter')),

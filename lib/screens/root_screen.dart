@@ -65,6 +65,13 @@ class _RootScreenState extends State<RootScreen> {
       _tab = 1;
       _radarBuilt = true;
     });
+    final contact = l['contact'];
+    if (contact != null) {
+      // bouton « Contacter » de la notification : message copié + annonce ouverte
+      final a = await RadarDb.analysis(contact);
+      if (a != null && mounted) await contactSeller(context, a.entry, widget.settings.minMargin);
+      return;
+    }
     final id = l['open_analysis'];
     final verify = l['radar_verify'];
     if (id != null) {

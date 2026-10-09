@@ -66,6 +66,7 @@ object RadarNotifs {
             .setAutoCancel(true)
             .setContentIntent(open)
             .addAction(0, "Annonce", ad)
+            .addAction(0, "Contacter", appIntent(ctx, "contact", analysisId, id + 2))
             .addAction(0, "Analyse", open)
             .build()
         try {

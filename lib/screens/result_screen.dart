@@ -1,24 +1,133 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models.dart';
+import '../radar/native_browser.dart';
+import '../radar/radar_db.dart';
+import '../services/analyzer.dart';
+import '../services/corrections.dart';
+import '../services/deals.dart';
 import '../services/history.dart';
+import '../services/mpb_catalog.dart';
 import '../services/mpb_service.dart';
+import '../services/offer.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'chat_screen.dart';
+import 'deals_screen.dart';
 
 const mpbSellUrl = 'https://www.mpb.com/fr-fr/vente-ou-reprise';
 
 void openExternal(String url) =>
     launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 
+/// Copie le message pour le vendeur et ouvre l'annonce (on colle dans Leboncoin).
+Future<void> contactSeller(BuildContext context, HistoryEntry e, double minMargin) async {
+  await Clipboard.setData(ClipboardData(text: sellerMessage(e, minMargin)));
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Message copié : colle-le dans la messagerie Leboncoin.')));
+  }
+  if (e.url.isNotEmpty) openExternal(e.url);
+}
+
 /// Résultat d'une analyse (nouvelle ou rouverte depuis l'historique).
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends StatefulWidget {
   final HistoryEntry entry;
   final Settings settings;
   const ResultScreen({super.key, required this.entry, required this.settings});
+
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen> {
+  HistoryEntry get entry => widget.entry;
+  Settings get settings => widget.settings;
+  Deal? _deal;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeal();
+  }
+
+  Future<void> _loadDeal() async {
+    try {
+      final d = await DealsStore.forEntry(entry.id);
+      if (mounted) setState(() => _deal = d);
+    } catch (_) {}
+  }
+
+  /// Enregistre l'analyse modifiée (radar ou historique).
+  Future<void> _save() async {
+    if (entry.id.startsWith('radar_')) {
+      await RadarDb.updateEntry(entry.id.substring(6), entry, minMargin: settings.minMargin);
+    } else {
+      await HistoryStore.upsert(entry);
+    }
+  }
+
+  Future<void> _bought() async {
+    final ctrl = TextEditingController(
+        text: (suggestedOffer(entry.analysis, settings.minMargin) ?? entry.adPrice ?? 0).toStringAsFixed(0));
+    final price = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Je l\'ai acheté'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Prix payé', suffixText: '€'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, double.tryParse(ctrl.text.replaceAll(',', '.').trim())),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    if (price == null) return;
+    await DealsStore.addFromEntry(entry, price);
+    await _loadDeal();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Text('Ajouté à « Mes affaires »'),
+      action: SnackBarAction(
+          label: 'Voir',
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DealsScreen(settings: settings)))),
+    ));
+  }
+
+  Future<void> _correct(ItemResult item) async {
+    final model = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CorrectSheet(initial: item.mpbModel ?? item.item.nameGuess),
+    );
+    if (model == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Recalcul avec les prix MPB…')));
+    final wrong = item.mpbModel;
+    try {
+      await repriceItem(item, model, entry.analysis.condition, NativeMpbFetch().service());
+      if (wrong != null) await Corrections.add(wrong, model);
+      entry.analysis.warnings.removeWhere((w) => wrong != null && w.contains(wrong));
+      await _save();
+      if (!mounted) return;
+      setState(() {});
+      messenger.showSnackBar(SnackBar(
+          content: Text(wrong == null ? 'Modèle corrigé.' : 'Corrigé. L\'appli s\'en souviendra pour « $wrong ».')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Correction impossible : $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +158,10 @@ class ResultScreen extends StatelessWidget {
           ],
           FadeSlideIn(
               delay: d(), child: _Hero(analysis: a, minMargin: settings.minMargin)),
+          if (maxBuyPrice(a, settings.minMargin) != null) ...[
+            const SizedBox(height: 10),
+            FadeSlideIn(delay: d(), child: _OfferCard(entry: entry, minMargin: settings.minMargin)),
+          ],
           for (final w in others) ...[
             const SizedBox(height: 10),
             FadeSlideIn(delay: d(), child: AlertBanner(text: w, level: AlertBanner.levelOf(w))),
@@ -61,7 +174,8 @@ class ResultScreen extends StatelessWidget {
             const SizedBox(height: 10),
             for (final it in a.items) ...[
               FadeSlideIn(
-                  delay: d(), child: _ItemCard(result: it, condition: a.condition)),
+                  delay: d(),
+                  child: _ItemCard(result: it, condition: a.condition, onCorrect: () => _correct(it))),
               const SizedBox(height: 10),
             ],
           ],
@@ -69,7 +183,34 @@ class ResultScreen extends StatelessWidget {
           FadeSlideIn(
             delay: d(),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              FilledButton.icon(
+              Row(children: [
+                if (entry.url.isNotEmpty) ...[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => contactSeller(context, entry, settings.minMargin),
+                      icon: const Icon(Icons.send_outlined, size: 20),
+                      label: const Text('Message vendeur'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: _deal == null
+                      ? FilledButton.tonalIcon(
+                          onPressed: _bought,
+                          icon: const Icon(Icons.shopping_bag_outlined, size: 20),
+                          label: const Text('Je l\'ai acheté'),
+                        )
+                      : FilledButton.tonalIcon(
+                          onPressed: () => Navigator.push(
+                              context, MaterialPageRoute(builder: (_) => DealsScreen(settings: settings))),
+                          icon: const Icon(Icons.check_circle_outline, size: 20),
+                          label: Text('Acheté ${euros(_deal!.boughtPrice)}'),
+                        ),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
                 onPressed: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -377,7 +518,8 @@ class _AdCardState extends State<_AdCard> {
 class _ItemCard extends StatelessWidget {
   final ItemResult result;
   final String condition;
-  const _ItemCard({required this.result, required this.condition});
+  final VoidCallback onCorrect;
+  const _ItemCard({required this.result, required this.condition, required this.onCorrect});
 
   @override
   Widget build(BuildContext context) {
@@ -470,17 +612,24 @@ class _ItemCard extends StatelessWidget {
             style: const TextStyle(fontSize: 12.5, color: AppColors.warn),
           ),
         ],
-        if (url != null)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
+        Row(children: [
+          TextButton.icon(
+            style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact, padding: const EdgeInsets.only(top: 4)),
+            onPressed: onCorrect,
+            icon: const Icon(Icons.edit_outlined, size: 16),
+            label: const Text('Pas le bon modèle ?'),
+          ),
+          const Spacer(),
+          if (url != null)
+            TextButton.icon(
               style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact, padding: const EdgeInsets.only(top: 4)),
               onPressed: () => openExternal(url),
               icon: const Icon(Icons.open_in_new, size: 16),
               label: const Text('Page MPB'),
             ),
-          ),
+        ]),
       ]),
     );
   }
@@ -537,5 +686,128 @@ class _PriceLadder extends StatelessWidget {
         if (c != mpbConditions.last) const SizedBox(width: 6),
       ],
     ]);
+  }
+}
+
+// ------------------------------------------------------- prix max / offre
+
+class _OfferCard extends StatelessWidget {
+  final HistoryEntry entry;
+  final double minMargin;
+  const _OfferCard({required this.entry, required this.minMargin});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final a = entry.analysis;
+    final max = maxBuyPrice(a, minMargin)!;
+    final prudent = maxBuyPrice(a, minMargin, prudent: true);
+    final offer = suggestedOffer(a, minMargin);
+    final over = a.price != null && a.price! > max;
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.price_check, color: cs.primary),
+          const SizedBox(width: 10),
+          const Expanded(child: Text('Prix d\'achat max', style: TextStyle(fontWeight: FontWeight.w700))),
+          Text(euros(max),
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, color: cs.primary, fontFeatures: tabular)),
+        ]),
+        const SizedBox(height: 4),
+        Text(
+          'Pour garder ${euros(minMargin)} de marge'
+          '${prudent != null && prudent != max ? ' (prudent : ${euros(prudent)})' : ''}. '
+          '${over ? 'Propose ${euros(offer)} au vendeur.' : 'Le prix demandé est déjà en dessous.'}',
+          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: sellerMessage(entry, minMargin)));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('Message pour le vendeur copié')));
+              }
+            },
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copier le message'),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+// ------------------------------------------------------- correction de modèle
+
+class _CorrectSheet extends StatefulWidget {
+  final String initial;
+  const _CorrectSheet({required this.initial});
+
+  @override
+  State<_CorrectSheet> createState() => _CorrectSheetState();
+}
+
+class _CorrectSheetState extends State<_CorrectSheet> {
+  late final _q = TextEditingController(text: widget.initial);
+  MpbCatalog? _catalog;
+  List<String> _results = [];
+
+  @override
+  void initState() {
+    super.initState();
+    MpbCatalog.load().then((c) {
+      _catalog = c;
+      _search();
+    });
+  }
+
+  void _search() {
+    final c = _catalog;
+    if (c == null || !mounted) return;
+    final q = _q.text.trim();
+    final exact = c.exact(q);
+    setState(() => _results = {if (exact != null) exact, ...c.match(q, limit: 15)}.toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.7,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Choisir le bon modèle', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text('Catalogue MPB. L\'appli retiendra la correction pour les prochaines annonces.',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _q,
+            autofocus: true,
+            decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Ex. Sony A68, 18-55 IS II…'),
+            onChanged: (_) => _search(),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _catalog == null
+                ? Center(
+                    child: Text('Catalogue MPB pas encore téléchargé (lance une analyse d\'abord).',
+                        textAlign: TextAlign.center, style: TextStyle(color: cs.onSurfaceVariant)))
+                : ListView(children: [
+                    for (final r in _results)
+                      ListTile(
+                        title: Text(r),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(context, r),
+                      ),
+                  ]),
+          ),
+        ]),
+      ),
+    );
   }
 }
