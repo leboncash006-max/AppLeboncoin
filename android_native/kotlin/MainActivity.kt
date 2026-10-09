@@ -42,7 +42,16 @@ class MainActivity : FlutterActivity() {
         val b = HeadlessBrowser(applicationContext)
         browser = b
         MethodChannel(messenger, "mpb_check/browser").setMethodCallHandler(b)
-        RadarWatchdog.schedule(applicationContext) // chien de garde (toutes les 15 min)
+        // chien de garde (toutes les 15 min), programmé juste après le lancement ;
+        // une erreur ici ne doit jamais empêcher l'appli de s'ouvrir
+        android.os.Handler(mainLooper).postDelayed({
+            try {
+                RadarWatchdog.schedule(applicationContext)
+            } catch (e: Throwable) {
+                android.util.Log.e("MpbRadar", "Chien de garde non programmé", e)
+                RadarEvents.setString(applicationContext, "watchdog_error", e.toString())
+            }
+        }, 3000)
         val ch = MethodChannel(messenger, "mpb_check/radar")
         radar = ch
         ch.setMethodCallHandler { call, result ->
@@ -101,8 +110,12 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "setPeriodic" -> {
-                    RadarWorker.schedule(this, call.argument<Boolean>("on") ?: false)
-                    result.success(null)
+                    try {
+                        RadarWorker.schedule(this, call.argument<Boolean>("on") ?: false)
+                        result.success(null)
+                    } catch (e: Throwable) {
+                        result.error("work", e.toString(), null)
+                    }
                 }
                 "start" -> {
                     RadarEvents.add(this, call.argument<String>("kind") ?: "manual")
@@ -110,6 +123,8 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "takeEvents" -> result.success(RadarEvents.drain(this))
+                "lastCrash" -> result.success(CrashCatcherProvider.takeLast(this))
+                "watchdogError" -> result.success(RadarEvents.getString(this, "watchdog_error"))
                 "recentNotifs" -> result.success(
                     mapOf("recent" to RadarEvents.recent(this), "active" to RadarNotificationListener.activeLeboncoin())
                 )

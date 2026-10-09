@@ -50,6 +50,21 @@ services = '''        <!-- RADAR : écoute des notifications Leboncoin -->
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 '''
+crash = '''        <!-- Attrape-plantage : affiche l'erreur exacte si l'appli plante -->
+        <provider
+            android:name=".CrashCatcherProvider"
+            android:authorities="${applicationId}.crashcatcher"
+            android:exported="false"
+            android:initOrder="1000"/>
+        <activity
+            android:name=".CrashActivity"
+            android:process=":crash"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault"/>
+'''
+if 'CrashCatcherProvider' not in m:
+    i = m.rindex('\n', 0, m.index('</application>')) + 1
+    m = m[:i] + crash + m[i:]
 if 'RadarNotificationListener' not in m:
     i = m.rindex('\n', 0, m.index('</application>')) + 1
     m = m[:i] + services + m[i:]
@@ -62,12 +77,12 @@ if 'androidx.work:work-runtime-ktx' not in g:
     g += '''
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 }
 '''
 open(gpath, 'w', encoding='utf-8').write(g)
 
-for needle in ('RadarNotificationListener', 'BIND_NOTIFICATION_LISTENER_SERVICE', 'FOREGROUND_SERVICE_DATA_SYNC',
+for needle in ('CrashCatcherProvider', 'CrashActivity', 'RadarNotificationListener', 'BIND_NOTIFICATION_LISTENER_SERVICE', 'FOREGROUND_SERVICE_DATA_SYNC',
                'POST_NOTIFICATIONS', 'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS', 'foregroundServiceType="dataSync"'):
     if needle not in m:
         sys.exit('Manifeste incomplet : ' + needle)

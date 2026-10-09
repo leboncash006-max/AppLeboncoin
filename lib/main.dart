@@ -13,6 +13,15 @@ final darkThemeNotifier = ValueNotifier<bool>(true);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // en cas d'erreur d'affichage, on montre le message (au lieu d'un écran gris)
+  ErrorWidget.builder = (details) => Material(
+        color: const Color(0xFF2A0F14),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: SelectableText('Erreur d\'affichage :\n${details.exceptionAsString()}',
+              style: const TextStyle(color: Colors.white, fontSize: 12)),
+        ),
+      );
   final settings = await Settings.load();
   darkThemeNotifier.value = settings.darkTheme;
   runApp(MyApp(settings: settings));

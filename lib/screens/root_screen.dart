@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../radar/radar_bridge.dart';
 import '../radar/radar_db.dart';
@@ -21,12 +22,38 @@ class RootScreen extends StatefulWidget {
 
 class _RootScreenState extends State<RootScreen> {
   int _tab = 0;
+  bool _radarBuilt = false; // l'onglet Radar n'est construit qu'au premier affichage
 
   @override
   void initState() {
     super.initState();
     RadarBridge.onLaunch(_handleLaunch);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _handleLaunch());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleLaunch();
+      _showLastCrash();
+    });
+  }
+
+  /// Plantage lors du lancement précédent : on affiche le rapport à copier.
+  Future<void> _showLastCrash() async {
+    final report = await RadarBridge.lastCrash();
+    if (report == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('L\'appli a planté la dernière fois'),
+        content: SingleChildScrollView(
+          child: SelectableText(report, style: const TextStyle(fontSize: 11)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: report)),
+            child: const Text('Copier'),
+          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleLaunch() async {
@@ -34,7 +61,10 @@ class _RootScreenState extends State<RootScreen> {
     if (l == null || !mounted) return;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
-    setState(() => _tab = 1);
+    setState(() {
+      _tab = 1;
+      _radarBuilt = true;
+    });
     final id = l['open_analysis'];
     final verify = l['radar_verify'];
     if (id != null) {
@@ -56,11 +86,17 @@ class _RootScreenState extends State<RootScreen> {
     return Scaffold(
       body: IndexedStack(index: _tab, children: [
         HomeScreen(settings: widget.settings),
-        RadarScreen(settings: widget.settings, visible: _tab == 1),
+        if (_radarBuilt || _tab == 1)
+          RadarScreen(settings: widget.settings, visible: _tab == 1)
+        else
+          const SizedBox.shrink(),
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
+        onDestinationSelected: (i) => setState(() {
+          _tab = i;
+          if (i == 1) _radarBuilt = true;
+        }),
         height: 66,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: 'Analyse'),

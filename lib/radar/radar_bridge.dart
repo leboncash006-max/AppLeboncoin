@@ -43,6 +43,15 @@ class RadarBridge {
 
   static Future<void> openNotificationAccess() => _ch.invokeMethod('openNotificationAccess');
   static Future<void> requestBatteryExempt() => _ch.invokeMethod('requestBatteryExempt');
+  /// Dernier plantage Android enregistré (effacé après lecture).
+  static Future<String?> lastCrash() async {
+    try {
+      return await _ch.invokeMethod<String>('lastCrash');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> openAppSettings() => _ch.invokeMethod('openAppSettings');
   static Future<void> rebind() => _ch.invokeMethod('rebind');
   static Future<void> requestNotifications() => _ch.invokeMethod('requestNotifications');
