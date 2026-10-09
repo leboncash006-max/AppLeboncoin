@@ -32,6 +32,16 @@ jobs:
       - name: Compléter le manifeste Android
         run: python3 tool/patch_manifest.py android/app/src/main/AndroidManifest.xml
 
+      # receive_sharing_intent 1.9 est compilé contre l'API 37 : l'appli doit l'être aussi
+      # (minSdk et targetSdk restent ceux de Flutter)
+      - name: compileSdk 37
+        run: |
+          G=android/app/build.gradle.kts
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 37/' $G
+          grep -q 'compileSdk = 37' $G
+          grep -q 'suppressUnsupportedCompileSdk' android/gradle.properties || \
+            echo 'android.suppressUnsupportedCompileSdk=37' >> android/gradle.properties
+
       - run: flutter pub get
 
       - name: Icône de l'appli
