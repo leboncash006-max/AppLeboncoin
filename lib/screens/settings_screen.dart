@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../main.dart';
 import '../services/settings.dart';
+import '../widgets/common.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Settings settings;
@@ -30,48 +32,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) Navigator.pop(context, true);
   }
 
+  Future<void> _setDark(bool v) async {
+    setState(() => widget.settings.darkTheme = v);
+    darkThemeNotifier.value = v;
+    await widget.settings.save();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Réglages')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          Text('Calcul de la reprise', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 4),
-          const Text('Reprise estimée = prix de revente MPB en état Bon × coefficient, '
-              'quand le modèle n\'a pas de vraie estimation enregistrée.'),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _coefBody,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                    labelText: 'Coef boîtiers', border: OutlineInputBorder()),
-              ),
+          AppCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: SwitchListTile(
+              value: widget.settings.darkTheme,
+              onChanged: _setDark,
+              secondary: const Icon(Icons.dark_mode_outlined),
+              title: const Text('Thème sombre', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _coefLens,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                    labelText: 'Coef objectifs', border: OutlineInputBorder()),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _margin,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-                labelText: 'Marge mini pour « bonne affaire » (€)',
-                border: OutlineInputBorder()),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+          AppCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('Calcul de la reprise', style: t.titleLarge?.copyWith(fontSize: 18)),
+              const SizedBox(height: 4),
+              Text(
+                  'Reprise estimée = prix de revente MPB en état Bon × coefficient, '
+                  'quand le modèle n\'a pas de vraie estimation enregistrée.',
+                  style: TextStyle(color: cs.onSurfaceVariant)),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _coefBody,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Coef boîtiers'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _coefLens,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Coef objectifs'),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _margin,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Marge mini pour « bonne affaire »', suffixText: '€'),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 20),
           FilledButton.icon(
-              onPressed: _save, icon: const Icon(Icons.save), label: const Text('Enregistrer')),
+              onPressed: _save, icon: const Icon(Icons.check), label: const Text('Enregistrer')),
         ],
       ),
     );

@@ -1,37 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'screens/home_screen.dart';
 import 'services/settings.dart';
+import 'theme.dart';
 
-void main() {
+/// Thème courant (sombre par défaut), modifiable depuis les réglages.
+final darkThemeNotifier = ValueNotifier<bool>(true);
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
+  final settings = await Settings.load();
+  darkThemeNotifier.value = settings.darkTheme;
+  runApp(MyApp(settings: settings));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final Settings settings;
+  const MyApp({super.key, required this.settings});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF5B3CC4));
-    return MaterialApp(
-      title: 'MPB Check',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: scheme, useMaterial3: true),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF5B3CC4), brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
-      home: FutureBuilder<Settings>(
-        future: Settings.load(),
-        builder: (context, snap) {
-          if (!snap.hasData) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-          return HomeScreen(settings: snap.data!);
-        },
-      ),
+    return ValueListenableBuilder<bool>(
+      valueListenable: darkThemeNotifier,
+      builder: (context, dark, _) {
+        SystemChrome.setSystemUIOverlayStyle(
+            dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark);
+        return MaterialApp(
+          title: 'MPB Check',
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.light),
+          darkTheme: buildTheme(Brightness.dark),
+          themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+          home: HomeScreen(settings: settings),
+        );
+      },
     );
   }
 }

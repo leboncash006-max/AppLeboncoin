@@ -23,6 +23,14 @@ class ExtractedItem {
       );
 
   bool get isLens => type == 'objectif';
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'brand': brand,
+        'mpb_name_guess': nameGuess,
+        'search_query': searchQuery,
+        'details': details,
+      };
 }
 
 /// Statistiques des prix de revente MPB pour un modèle.
@@ -33,6 +41,15 @@ class ResaleStats {
   final String? productUrl;
 
   ResaleStats(this.median, this.count, this.basis, this.productUrl);
+
+  Map<String, dynamic> toJson() =>
+      {'median': median, 'count': count, 'basis': basis, 'url': productUrl};
+
+  factory ResaleStats.fromJson(Map<String, dynamic> j) => ResaleStats(
+      (j['median'] as num).toDouble(),
+      (j['count'] as num).toInt(),
+      (j['basis'] ?? '').toString(),
+      j['url'] as String?);
 }
 
 /// Résultat pour un élément de l'annonce.
@@ -48,6 +65,35 @@ class ItemResult {
   double? coef;
 
   ItemResult(this.item, this.candidates);
+
+  Map<String, dynamic> toJson() => {
+        'item': item.toJson(),
+        'candidates': candidates,
+        'mpbModel': mpbModel,
+        'confident': confident,
+        'reason': reason,
+        'resale': resale?.toJson(),
+        'buyback': buyback,
+        'source': source,
+        'coef': coef,
+      };
+
+  factory ItemResult.fromJson(Map<String, dynamic> j) {
+    final r = ItemResult(
+      ExtractedItem.fromJson(Map<String, dynamic>.from(j['item'] as Map)),
+      ((j['candidates'] as List?) ?? []).map((e) => '$e').toList(),
+    )
+      ..mpbModel = j['mpbModel'] as String?
+      ..confident = j['confident'] == true
+      ..reason = (j['reason'] ?? '').toString()
+      ..buyback = (j['buyback'] as num?)?.toDouble()
+      ..source = (j['source'] ?? '').toString()
+      ..coef = (j['coef'] as num?)?.toDouble();
+    if (j['resale'] != null) {
+      r.resale = ResaleStats.fromJson(Map<String, dynamic>.from(j['resale'] as Map));
+    }
+    return r;
+  }
 }
 
 class Analysis {
@@ -71,4 +117,24 @@ class Analysis {
       items.fold(0.0, (s, i) => s + (i.buyback ?? 0));
 
   double? get margin => price == null ? null : totalBuyback - price!;
+
+  Map<String, dynamic> toJson() => {
+        'items': items.map((i) => i.toJson()).toList(),
+        'price': price,
+        'defects': defects,
+        'conditionHint': conditionHint,
+        'shutterCount': shutterCount,
+        'warnings': warnings,
+      };
+
+  factory Analysis.fromJson(Map<String, dynamic> j) => Analysis(
+        items: ((j['items'] as List?) ?? [])
+            .map((e) => ItemResult.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        price: (j['price'] as num?)?.toDouble(),
+        defects: ((j['defects'] as List?) ?? []).map((e) => '$e').toList(),
+        conditionHint: (j['conditionHint'] ?? 'inconnu').toString(),
+        shutterCount: (j['shutterCount'] as num?)?.toInt(),
+        warnings: ((j['warnings'] as List?) ?? []).map((e) => '$e').toList(),
+      );
 }

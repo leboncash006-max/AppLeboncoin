@@ -28,15 +28,15 @@ jobs:
             flutter create --org fr.eddybonnet --project-name mpb_check --platforms android .
           fi
 
-      - name: Permission Internet et nom de l'appli
-        run: |
-          M=android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' $M || \
-            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' $M
-          sed -i 's#android:label="[^"]*"#android:label="MPB Check"#' $M
-          cat $M
+      # INTERNET, nom « MPB Check », partage Android (ACTION_SEND text/plain), singleTask
+      - name: Compléter le manifeste Android
+        run: python3 tool/patch_manifest.py android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
+
+      - name: Icône de l'appli
+        run: dart run flutter_launcher_icons
+
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings lib
       - run: flutter build apk --release
 
