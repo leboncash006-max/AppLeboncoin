@@ -143,13 +143,18 @@ class Analysis {
   double get totalBuyback =>
       items.fold(0.0, (s, i) => s + (i.buyback ?? 0));
 
-  double? get margin => price == null ? null : totalBuyback - price!;
+  /// true si au moins un élément a un prix de reprise (0 € pour pièces compris).
+  bool get hasBuyback => items.any((i) => i.buyback != null);
+
+  /// Marge inconnue si le prix manque ou si rien n'a pu être chiffré
+  /// (sinon « 0 € de reprise » afficherait une fausse perte).
+  double? get margin => price == null || !hasBuyback ? null : totalBuyback - price!;
 
   /// Reprise si MPB classe le matériel un cran en dessous.
   double get prudentTotal =>
       items.fold(0.0, (s, i) => s + (i.prudentBuyback ?? i.buyback ?? 0));
 
-  double? get prudentMargin => price == null ? null : prudentTotal - price!;
+  double? get prudentMargin => price == null || !hasBuyback ? null : prudentTotal - price!;
 
   Map<String, dynamic> toJson() => {
         'items': items.map((i) => i.toJson()).toList(),

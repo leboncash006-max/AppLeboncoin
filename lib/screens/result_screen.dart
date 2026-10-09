@@ -194,7 +194,7 @@ class _Hero extends StatelessWidget {
             Expanded(
               child: _Figure(
                   label: 'Reprise MPB',
-                  value: euros(analysis.totalBuyback),
+                  value: analysis.hasBuyback ? euros(analysis.totalBuyback) : '—',
                   alignEnd: true,
                   color: cs.primary),
             ),

@@ -99,6 +99,8 @@ class AlertBanner extends StatelessWidget {
     final l = w.toLowerCase();
     if (l.startsWith('défauts') ||
         l.contains('introuvable') ||
+        l.contains('impossible') ||
+        l.contains('indisponible') ||
         l.contains('incertaine') ||
         l.contains('inconnu')) {
       return AlertLevel.warning;

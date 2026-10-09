@@ -22,6 +22,15 @@ class MpbService {
   static const _headers = {
     'Content-Language': 'fr_FR',
     'Accept': 'application/json',
+    ..._browser,
+  };
+
+  /// En-têtes de navigateur : certains filtres anti-robot renvoient une page
+  /// HTML au client HTTP de Dart (User-Agent « Dart/… »).
+  static const _browser = {
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36',
+    'Accept-Language': 'fr-FR,fr;q=0.9',
   };
 
   final http.Client _client;
@@ -30,15 +39,28 @@ class MpbService {
 
   MpbService([http.Client? client]) : _client = client ?? http.Client();
 
-  Future<dynamic> _get(String path, Map<String, dynamic> params) async {
-    final uri = Uri.https(_host, path, params);
-    final r = await _client
-        .get(uri, headers: _headers)
-        .timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) {
+  Future<dynamic> _get(String path, Map<String, dynamic> params) =>
+      _getJson(Uri.https(_host, path, params), _headers);
+
+  /// GET qui exige du JSON. Si MPB renvoie une page HTML (anti-robot, limite de
+  /// requêtes…), on réessaie une fois puis on lève une erreur lisible.
+  Future<dynamic> _getJson(Uri uri, Map<String, String> headers) async {
+    for (var attempt = 0;; attempt++) {
+      final r = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      final body = utf8.decode(r.bodyBytes, allowMalformed: true);
+      final isJson = body.trimLeft().startsWith('{') || body.trimLeft().startsWith('[');
+      if (r.statusCode == 200 && isJson) return jsonDecode(body);
+      if (attempt == 0 && (!isJson || r.statusCode == 429 || r.statusCode >= 500)) {
+        await Future.delayed(const Duration(milliseconds: 1500));
+        continue;
+      }
+      if (!isJson) {
+        throw Exception('MPB a renvoyé une page web au lieu des données '
+            '(HTTP ${r.statusCode}) : protection anti-robot ou trop de requêtes. '
+            'Réessaie dans quelques minutes.');
+      }
       throw Exception('MPB a répondu ${r.statusCode}');
     }
-    return jsonDecode(utf8.decode(r.bodyBytes));
   }
 
   /// Noms exacts du catalogue MPB proches de [query].
@@ -136,12 +158,11 @@ class MpbService {
       } catch (_) {}
     }
     final uri = Uri.https(_host, '/public-api/v1/models/purchase-price/$modelId/$condition/');
-    final r = await _client.get(uri, headers: {
+    final j = await _getJson(uri, {
       'X-Market': 'fr', // obligatoire, sinon prix en GBP
       'Accept': 'application/json',
-    }).timeout(const Duration(seconds: 15));
-    if (r.statusCode != 200) throw Exception('Reprise MPB : réponse ${r.statusCode}');
-    final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+      ..._browser,
+    }) as Map<String, dynamic>;
     if (j['currency'] != 'EUR') throw Exception('Reprise MPB : devise ${j['currency']}');
     final v = (j['purchase_value'] as num).toDouble();
     await prefs.setString(

@@ -119,7 +119,7 @@ ThemeData buildTheme(Brightness brightness) {
 /// Verdict et couleur selon la marge (mêmes seuils que la v1).
 ({String label, Color color, IconData icon}) verdictFor(double? margin, double minMargin) {
   if (margin == null) {
-    return (label: 'Prix inconnu', color: AppColors.neutral, icon: Icons.help_outline);
+    return (label: 'Non estimé', color: AppColors.neutral, icon: Icons.help_outline);
   }
   if (margin >= minMargin) {
     return (label: 'Bonne affaire', color: AppColors.good, icon: Icons.trending_up);

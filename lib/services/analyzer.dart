@@ -165,6 +165,8 @@ class Analyzer {
     onStep?.call('Recherche dans le catalogue MPB…');
     final adLower = ad.toLowerCase();
     final results = <ItemResult>[];
+    String? searchError;
+    final failedSearch = <ExtractedItem>{};
     for (final it in extracted) {
       final cands = <String>{};
       for (final q in [it.searchQuery, it.nameGuess, '${it.brand} ${it.nameGuess}']) {
@@ -172,7 +174,8 @@ class Analyzer {
         try {
           cands.addAll(await mpb.suggest(q));
         } catch (e) {
-          warnings.add('Recherche MPB impossible : $e');
+          searchError ??= e.toString().replaceFirst('Exception: ', '');
+          failedSearch.add(it);
           break;
         }
       }
@@ -212,7 +215,9 @@ class Analyzer {
     for (final r in results) {
       final m = r.mpbModel;
       if (m == null) {
-        warnings.add('« ${r.item.nameGuess} » introuvable chez MPB.');
+        warnings.add(failedSearch.contains(r.item)
+            ? '« ${r.item.nameGuess} » non chiffré : la recherche MPB a échoué.'
+            : '« ${r.item.nameGuess} » introuvable chez MPB.');
         continue;
       }
       try {
@@ -255,6 +260,7 @@ class Analyzer {
       }
     }
 
+    if (searchError != null) warnings.insert(0, 'Recherche MPB impossible : $searchError');
     if (price == null) warnings.add('Prix de l\'annonce inconnu.');
     if (defects.isNotEmpty) {
       warnings.insert(0, 'Défauts signalés : ${defects.join(", ")}');
