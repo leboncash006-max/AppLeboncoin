@@ -4,3 +4,4 @@ build/
 .flutter-plugins*
 .idea/
 *.iml
+# signing/ est volontairement versionné (dépôt privé) : clé fixe pour les mises à jour

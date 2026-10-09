@@ -42,13 +42,25 @@ jobs:
           grep -q 'suppressUnsupportedCompileSdk' android/gradle.properties || \
             echo 'android.suppressUnsupportedCompileSdk=37' >> android/gradle.properties
 
+      # Signature avec la clé fixe de signing/ : les mises à jour s'installent
+      # par-dessus la version précédente, sans désinstaller
+      - name: Signature release
+        run: python3 tool/patch_signing.py android/app/build.gradle.kts
+
       - run: flutter pub get
 
       - name: Icône de l'appli
         run: dart run flutter_launcher_icons
 
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings lib
-      - run: flutter build apk --release
+      # numéro de version Android croissant à chaque build (requis pour les mises à jour)
+      - run: flutter build apk --release --build-number=${{ github.run_number }}
+
+      - name: Vérifier la signature de l'APK
+        run: |
+          APKSIGNER=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)apksigner
+          $APKSIGNER verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee certs.txt
+          grep -qi "SHA-256 digest: 591076acec1a6d93192bb4aa230295f37fb04d27b9a551a6fe109de081817347" certs.txt
 
       - uses: actions/upload-artifact@v4
         with:

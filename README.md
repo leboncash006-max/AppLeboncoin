@@ -91,14 +91,18 @@ Le workflow génère `android/` avec `flutter create`, complète le manifeste av
 `singleTask`), génère l'icône (`flutter_launcher_icons`), puis lance `flutter analyze` et
 `flutter build apk --release`.
 
-> L'APK est signé avec une clé de débogage créée à chaque build. Si Android refuse la mise à
-> jour (« conflit avec un paquet existant »), désinstalle l'ancienne version d'abord
-> (l'historique et les réglages sont alors effacés).
+> **Signature** : l'APK est signé avec la clé fixe de `signing/` (`mpb-check.jks`,
+> mots de passe dans `key.properties`), branchée par `tool/patch_signing.py`. Chaque
+> nouvelle version s'installe donc par-dessus la précédente, sans désinstaller (le numéro
+> de build Android augmente à chaque run). Le workflow vérifie l'empreinte du certificat
+> (SHA-256 `59:10:76:AC:…:81:73:47`). **Garde une copie de ce dossier** : sans cette clé,
+> plus aucune mise à jour ne pourra s'installer par-dessus. Et garde le dépôt privé.
 
 ### Option B : sur ton PC avec Flutter
 ```bash
 flutter create --org fr.eddybonnet --project-name mpb_check --platforms android .
 python3 tool/patch_manifest.py
+python3 tool/patch_signing.py
 flutter pub get
 dart run flutter_launcher_icons
 flutter build apk --release
@@ -115,3 +119,4 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `lib/theme.dart`, `lib/widgets/common.dart` : thème et composants
 - `assets/icon/` : icône de l'appli
 - `tool/patch_manifest.py` : ajouts au manifeste Android
+- `tool/patch_signing.py`, `signing/` : signature fixe de l'APK
