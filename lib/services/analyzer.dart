@@ -1,6 +1,7 @@
 import '../data/real_quotes.dart';
 import '../models.dart';
 import 'gemini_service.dart';
+import 'mpb_catalog.dart';
 import 'mpb_service.dart';
 import 'settings.dart';
 
@@ -136,9 +137,14 @@ class Analyzer {
   final MpbService mpb;
   final GeminiService gemini;
 
-  Analyzer(this.settings, {MpbService? mpb, GeminiService? gemini})
+  /// Noms exacts des modèles MPB (téléchargés une fois, gardés dans l'appli).
+  final MpbCatalog? catalog;
+
+  Analyzer(this.settings, {MpbService? mpb, GeminiService? gemini, this.catalog})
       : mpb = mpb ?? MpbService(),
-        gemini = gemini ?? GeminiService();
+        gemini = gemini ?? GeminiService() {
+    if (catalog != null) this.mpb.rememberIds(catalog!.ids);
+  }
 
   Future<Analysis> analyze(String title, String description, double? price,
       {String attributes = '', Progress? onStep}) async {
@@ -167,27 +173,60 @@ class Analyzer {
     final results = <ItemResult>[];
     String? searchError;
     final failedSearch = <ExtractedItem>{};
+    final exactMatches = <ExtractedItem, String>{};
     for (final it in extracted) {
       final cands = <String>{};
-      for (final q in [it.searchQuery, it.nameGuess, '${it.brand} ${it.nameGuess}']) {
-        if (cands.length >= 6) break;
-        try {
-          cands.addAll(await mpb.suggest(q));
-        } catch (e) {
-          searchError ??= e.toString().replaceFirst('Exception: ', '');
-          failedSearch.add(it);
-          break;
+      // a) catalogue local : nom exact, sinon noms les plus proches (sans réseau)
+      final cat = catalog;
+      if (cat != null) {
+        final exact = cat.exact(it.nameGuess);
+        if (exact != null) {
+          exactMatches[it] = exact;
+          cands.add(exact);
+        } else {
+          cands.addAll(cat.match('${it.nameGuess} ${it.searchQuery}', brand: it.brand));
+        }
+      }
+      // b) moteur de recherche MPB, seulement sans catalogue ou sans résultat
+      if (cands.isEmpty) {
+        final codes = MpbCatalog.tokens(it.nameGuess)
+            .where((w) => w.contains(RegExp(r'\d')))
+            .join(' ');
+        final queries = [
+          it.searchQuery,
+          it.nameGuess,
+          '${it.brand} ${it.nameGuess}',
+          if (codes.isNotEmpty) '${it.brand} $codes',
+        ];
+        for (final q in queries) {
+          if (cands.length >= 6) break;
+          try {
+            cands.addAll(await mpb.suggest(q));
+          } catch (e) {
+            searchError ??= e.toString().replaceFirst('Exception: ', '');
+            failedSearch.add(it);
+            break;
+          }
         }
       }
       final filtered = cands
           .where((c) => !_special.hasMatch(c) || _special.hasMatch(adLower))
           .take(12)
           .toList();
-      results.add(ItemResult(it, filtered));
+      final r = ItemResult(it, filtered);
+      final exact = exactMatches[it];
+      if (exact != null && filtered.contains(exact)) {
+        // nom exact du catalogue : pas besoin de demander à l'IA
+        r.mpbModel = exact;
+        r.confident = true;
+        r.reason = 'Nom exact du catalogue MPB';
+      }
+      results.add(r);
     }
 
     // 3. Gemini choisit le bon nom parmi les candidats
-    final withCands = results.where((r) => r.candidates.isNotEmpty).toList();
+    final withCands =
+        results.where((r) => r.candidates.isNotEmpty && r.mpbModel == null).toList();
     if (withCands.isNotEmpty) {
       onStep?.call('Identification des modèles exacts…');
       final ch = await gemini.generateJson(

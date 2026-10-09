@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../services/analyzer.dart';
 import '../services/history.dart';
 import '../services/leboncoin_reader.dart';
+import '../services/mpb_catalog.dart';
 import '../services/mpb_service.dart';
 import '../services/mpb_web_transport.dart';
 import '../services/settings.dart';
@@ -63,12 +64,18 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       });
     };
   late final MpbService _mpb = MpbService(null, _mpbWeb.fetch);
+
+  /// Catalogue des noms exacts MPB, préparé pendant la lecture de l'annonce.
+  late final Future<MpbCatalog?> _catalog = MpbCatalog.ensure(_mpb, onStatus: (st) {
+    if (mounted && _step >= 1 && _error == null) setState(() => _detail = st);
+  });
   bool _mpbOpen = false;
   bool _mpbChallenge = false;
 
   @override
   void initState() {
     super.initState();
+    _catalog; // démarre tout de suite, en parallèle de la lecture Leboncoin
     _start();
   }
 
@@ -156,7 +163,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     });
     final attrsText = attrs.entries.map((e) => '${e.key} : ${e.value}').join('\n');
     try {
-      final a = await Analyzer(widget.settings, mpb: _mpb).analyze(title, desc, price,
+      final catalog = await _catalog;
+      final a = await Analyzer(widget.settings, mpb: _mpb, catalog: catalog).analyze(title, desc, price,
           attributes: attrsText, onStep: (st) {
         if (!mounted) return;
         setState(() {

@@ -25,7 +25,7 @@ if 'android.intent.action.SEND' not in m:
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <category android:name="android.intent.category.DEFAULT"/>
-                <data android:mimeType="text/plain"/>
+                <data android:mimeType="text/*"/>
             </intent-filter>
 '''
     i = m.rindex('\n', 0, m.index('</activity>')) + 1  # début de la ligne </activity>

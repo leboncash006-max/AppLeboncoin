@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../services/mpb_catalog.dart';
 import '../services/settings.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -19,6 +21,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       TextEditingController(text: widget.settings.coefLens.toString());
   late final _margin =
       TextEditingController(text: widget.settings.minMargin.toStringAsFixed(0));
+
+  MpbCatalog? _catalog;
+  bool _catalogLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    MpbCatalog.load().then((c) {
+      if (mounted) {
+        setState(() {
+          _catalog = c;
+          _catalogLoaded = true;
+        });
+      }
+    });
+  }
+
+  Future<void> _refreshCatalog() async {
+    await MpbCatalog.invalidate();
+    if (!mounted) return;
+    setState(() => _catalog = null);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Le catalogue sera retéléchargé à la prochaine analyse.')));
+  }
 
   double _num(TextEditingController c, double fallback) =>
       double.tryParse(c.text.replaceAll(',', '.').trim()) ?? fallback;
@@ -55,6 +81,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               secondary: const Icon(Icons.dark_mode_outlined),
               title: const Text('Thème sombre', style: TextStyle(fontWeight: FontWeight.w600)),
             ),
+          ),
+          const SizedBox(height: 16),
+          AppCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('Catalogue MPB', style: t.titleLarge?.copyWith(fontSize: 18)),
+              const SizedBox(height: 4),
+              Text(
+                  !_catalogLoaded
+                      ? '…'
+                      : _catalog == null
+                          ? 'Pas encore téléchargé : il le sera à la prochaine analyse.'
+                          : '${_catalog!.size} noms exacts de modèles, mis à jour le '
+                              '${shortDate(_catalog!.date)}. Rafraîchi automatiquement chaque semaine.',
+                  style: TextStyle(color: cs.onSurfaceVariant)),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _catalog == null ? null : _refreshCatalog,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retélécharger le catalogue'),
+              ),
+            ]),
           ),
           const SizedBox(height: 16),
           AppCard(

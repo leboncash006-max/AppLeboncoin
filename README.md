@@ -10,7 +10,7 @@ questions à l'IA sur l'annonce.
   les 5 prix (Comme neuf → Très usé). La marge principale utilise l'état annoncé sur
   Leboncoin, et une **marge prudente** utilise l'état juste en dessous.
 - **Partage direct** : dans l'appli Leboncoin, *Partager › MPB Check* lance l'analyse
-  tout de suite (réception de `ACTION_SEND text/plain` via `receive_sharing_intent`).
+  tout de suite (réception de `ACTION_SEND text/*` via `receive_sharing_intent`).
 - **Presse-papiers** : au lancement et au retour dans l'appli, si un lien Leboncoin a été
   copié, une bannière propose « Analyser l'annonce copiée ? ». Le lien est extrait du texte
   partagé par une simple regex (`extractLeboncoinUrl`), sans IA.
@@ -43,7 +43,16 @@ questions à l'IA sur l'annonce.
    l'appli. Les appels MPB partent donc d'une page mpb.com ouverte dans une WebView
    repliée (`lib/services/mpb_web_transport.dart`), comme un vrai navigateur. Si MPB
    demande une vérification, la WebView se déplie pour que tu la fasses.
-5. **Prix de reprise réel** :
+5. **Catalogue local des noms exacts** : le moteur de recherche MPB ne trouve un modèle
+   qu'avec son nom quasi exact (« Sony A68 » ne trouve pas « Sony Alpha SLT-A68 »).
+   L'appli télécharge donc une fois la liste complète des modèles MPB (nom exact +
+   identifiant), la garde en local (`lib/services/mpb_catalog.dart`) et la rafraîchit
+   chaque semaine (bouton « Retélécharger » dans les réglages). Chaque élément est
+   comparé en local, en donnant plus de poids aux références (A68, 1200D, 18-55…) :
+   nom exact → retenu directement, sans IA ; sinon les noms les plus proches sont
+   proposés à Gemini. L'identifiant vient aussi du catalogue (un appel de moins).
+   Le moteur de recherche MPB ne sert plus qu'en secours.
+6. **Prix de reprise réel** :
    - identifiant MPB du modèle : `GET /search-service/product/query/` avec
      `filter_query[object_type]=model` et le nom exact (marche aussi hors stock) ;
    - 5 prix : `GET /public-api/v1/models/purchase-price/<id>/<état>/` avec `X-Market: fr`
@@ -65,7 +74,7 @@ questions à l'IA sur l'annonce.
    - **Secours** si l'API ne répond pas : ancienne estimation enregistrée
      (`lib/data/real_quotes.dart`), sinon médiane de revente MPB en état Bon × 0,54
      (boîtier) ou × 0,40 (objectif). C'est alors affiché « estimation approximative ».
-6. **Résultat**, puis questions éventuelles à l'IA (qui connaît aussi les 5 prix de
+7. **Résultat**, puis questions éventuelles à l'IA (qui connaît aussi les 5 prix de
    chaque élément).
 
 Saisie manuelle : bouton « Saisir le texte à la main » sous le champ du lien.
@@ -116,6 +125,7 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 ## Fichiers
 - `lib/services/leboncoin_reader.dart` : lecture de la page (testé sur la structure réelle le 09/10/2026)
 - `lib/services/mpb_web_transport.dart` : requêtes MPB depuis une WebView mpb.com
+- `lib/services/mpb_catalog.dart` : catalogue local des noms exacts MPB
 - `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)
 - `lib/services/gemini_service.dart` : appels Gemini (JSON imposé pour l'analyse, chat avec recherche)
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse

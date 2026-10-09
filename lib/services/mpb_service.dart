@@ -166,6 +166,44 @@ class MpbService {
     return id;
   }
 
+  /// Tous les modèles du catalogue MPB (nom exact → identifiant), y compris
+  /// ceux qui ne sont pas en stock. Lu par pages ; s'arrête quand une page
+  /// n'apporte plus rien.
+  Future<Map<String, int>> allModels({void Function(int)? onProgress}) async {
+    const pageSize = 2000;
+    final out = <String, int>{};
+    var start = 0;
+    for (var page = 0; page < 400; page++) {
+      final data = await _get('/search-service/product/query/', {
+        'filter_query[object_type]': 'model',
+        'filter_query[model_market]': 'EU',
+        'field_list': ['model_id', 'model_name'],
+        'rows': '$pageSize',
+        'start': '$start',
+      });
+      final rows = (data['results'] as List?) ?? [];
+      final before = out.length;
+      for (final r in rows) {
+        final name = _first(r, 'model_name');
+        final id = int.tryParse(_first(r, 'model_id') ?? '');
+        if (name != null && name.isNotEmpty && id != null) out[name] = id;
+      }
+      onProgress?.call(out.length);
+      // fin : page vide, ou pagination ignorée (aucun nom nouveau). Si MPB
+      // plafonne le nombre de lignes, on avance simplement de ce qu'il rend.
+      if (rows.isEmpty || out.length == before) break;
+      start += rows.length;
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    for (final e in out.entries) {
+      _idCache[e.key] = e.value;
+    }
+    return out;
+  }
+
+  /// Identifiant déjà connu (catalogue local), sans appel réseau.
+  void rememberIds(Map<String, int> ids) => _idCache.addAll(ids);
+
   /// Prix de reprise MPB pour [modelId] et un état de [mpbConditions], en euros.
   /// Cache local de 24 h par id + état.
   Future<double> purchasePrice(int modelId, String condition) async {

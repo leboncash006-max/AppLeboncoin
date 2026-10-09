@@ -16,6 +16,7 @@ dependencies:
   receive_sharing_intent: ^1.9.0
   google_fonts: ^8.2.1
   flutter_markdown_plus: ^1.0.12
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
