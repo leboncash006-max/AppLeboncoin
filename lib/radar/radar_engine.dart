@@ -360,7 +360,7 @@ class RadarEngine {
     await _live(step: 'Pré-analyse (titre + état, sans ouvrir l\'annonce)');
     try {
       pre = await analyzer.analyze(a.subject, '', a.price,
-          attributes: a.attributesText, onStep: (st) => _live(detail: st));
+          attributes: a.attributesText, onStep: (st) => _live(detail: st), verify: false);
     } catch (e) {
       await RadarDb.log('  « ${a.subject} » : pré-analyse impossible ($e)');
       return true;

@@ -93,6 +93,9 @@ class MpbCatalog {
     const accents = {'é': 'e', 'è': 'e', 'ê': 'e', 'à': 'a', 'â': 'a', 'î': 'i', 'ô': 'o', 'û': 'u', 'ç': 'c'};
     accents.forEach((a, b) => t = t.replaceAll(a, b));
     t = t.replaceAllMapped(RegExp(r'(\d)mm\b'), (m) => '${m[1]} mm');
+    // « α68 », « alpha 68 », « alpha-68 » → a68 (référence Sony)
+    t = t.replaceAllMapped(RegExp(r'(?:α|\balpha)[\s-]?(\d{1,4}[a-z]{0,3})\b'), (m) => 'a${m[1]}');
+    t = t.replaceAll('α', 'a');
     return t
         .split(RegExp(r'[^a-z0-9.]+'))
         .map((w) => w.replaceAll(RegExp(r'^\.+|\.+$'), ''))

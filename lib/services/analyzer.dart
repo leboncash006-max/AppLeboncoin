@@ -3,6 +3,7 @@ import '../models.dart';
 import 'corrections.dart';
 import 'gemini_service.dart';
 import 'local_identifier.dart';
+import 'match_check.dart';
 import 'mpb_catalog.dart';
 import 'mpb_service.dart';
 import 'settings.dart';
@@ -82,11 +83,14 @@ Pour chacun :
 - brand : la marque (Canon, Nikon, Sony, Fujifilm, Sigma, Tamron…)
 - mpb_name_guess : le nom officiel complet, au format du catalogue MPB, par
   exemple « Canon EOS 1200D », « Nikon D3200 », « Sony Alpha A6000 »,
+  « Sony Alpha SLT-A68 » (souvent écrit « Sony a68 » ou « alpha 68 »),
   « Canon EF-S 18-55mm f/3.5-5.6 IS STM », « Nikon AF-S DX Nikkor 35mm f/1.8G ».
   Déduis la version exacte des indices (STM, IS, VR, II…). Un objectif de kit
   sans précision est souvent la version livrée avec ce boîtier.
 - search_query : 2 à 5 mots pour chercher le modèle (marque + référence),
-  par exemple « Canon 1200D » ou « Canon 18-55 IS STM ».
+  par exemple « Canon 1200D », « Sony A68 » ou « Canon 18-55 IS STM ».
+Les vendeurs abrègent souvent : « a68 », « 1200d », « d3200 », « xt20 » ; retrouve
+toujours le modèle officiel correspondant.
 - details : version incertaine, monture, etc.
 Indique aussi : le prix s'il figure dans le texte (price_in_text), les défauts
 mentionnés (defects : HS, panne, rayure sur lentille, champignon, écran cassé,
@@ -160,7 +164,7 @@ class Analyzer {
   }
 
   Future<Analysis> analyze(String title, String description, double? price,
-      {String attributes = '', Progress? onStep}) async {
+      {String attributes = '', Progress? onStep, bool verify = true}) async {
     final ad = [
       'Titre : $title',
       'Prix : ${price ?? "?"} €',
@@ -184,26 +188,17 @@ class Analyzer {
       );
     }
 
-    // 0. Mode local : identification SANS IA (catalogue MPB + mots-clés).
-    //    Gemini ne sert qu'en secours, si rien n'est reconnu.
-    final local = settings.localEngine && catalog != null
-        ? LocalIdentifier(catalog!).identify(title, description, attributes)
-        : null;
-    final useLocal = local != null && local.items.isNotEmpty;
+    // 1. Identification par l'IA (Gemini) partout. Le catalogue local ne sert
+    //    qu'en secours, si l'IA ne répond pas (quota, réseau).
     var ext = <String, dynamic>{};
     var defects = <String>[];
     final adLower = ad.toLowerCase();
     final results = <ItemResult>[];
     String? searchError;
     final failedSearch = <ExtractedItem>{};
-    if (useLocal) {
-      onStep?.call('Identification locale (sans IA)…');
-      results.addAll(local.items);
-      defects = local.defects;
-      price ??= local.priceInText;
-      ext = {'condition_hint': local.conditionHint, 'shutter_count': local.shutterCount};
-      onStep?.call('Catalogue MPB : ${local.items.length} élément(s) reconnu(s)');
-    } else {
+    var engine = 'ia';
+    final priceIn = price;
+    try {
       // 1. Gemini comprend l'annonce
       onStep?.call("Lecture de l'annonce…");
       ext = await gemini.generateJson(_extractPrompt(ad), _extractSchema);
@@ -284,7 +279,25 @@ class Analyzer {
           }
         }
       }
-    } // fin de l'identification par Gemini
+    } catch (e) {
+      final local = catalog != null ? LocalIdentifier(catalog!).identify(title, description, attributes) : null;
+      if (local == null || local.items.isEmpty) rethrow;
+      results
+        ..clear()
+        ..addAll(local.items);
+      failedSearch.clear();
+      searchError = null;
+      price = priceIn ?? local.priceInText;
+      defects = local.defects;
+      ext = {'condition_hint': local.conditionHint, 'shutter_count': local.shutterCount};
+      engine = 'local';
+      for (final r in results) {
+        r.confident = false; // sans l'IA, jamais « sûr »
+      }
+      warnings.add('IA indisponible (${e.toString().replaceFirst('Exception: ', '')}) : '
+          'identification de secours par le catalogue local, à vérifier.');
+      onStep?.call('IA indisponible : catalogue local (${local.items.length} élément(s))');
+    }
 
     // 3 bis. corrections faites à la main (« Pas le bon modèle ? »)
     final corrections = await Corrections.load();
@@ -372,7 +385,7 @@ class Analyzer {
       warnings.insert(0, '⛔ Annoncé « pour pièces / HS » : MPB ne le reprendra pas.');
     }
 
-    return Analysis(
+    final an = Analysis(
       items: results,
       price: price,
       defects: defects,
@@ -381,7 +394,26 @@ class Analyzer {
       warnings: warnings,
       condition: condition,
       prudentCondition: forParts ? 'parts' : prudentCond,
+      engine: engine,
     );
+    // 5. vérification de correspondance (garde-fou marque + verdict IA)
+    if (verify && an.items.any((i) => i.mpbModel != null)) {
+      onStep?.call('Vérification de la correspondance (IA)…');
+      final v = await MatchCheck.run(gemini, an, title, attributes, description);
+      an.aiVerdict = v.verdict;
+      an.aiReason = v.reason;
+      if (v.verdict != 'oui') {
+        for (final r in an.items) {
+          r.confident = false;
+        }
+        an.warnings.insert(
+            0,
+            v.verdict == 'non'
+                ? '⛔ Vérification IA : identification probablement fausse. ${v.reason}'
+                : '⚠️ Vérification IA : doute. ${v.reason}');
+      }
+    }
+    return an;
   }
 }
 

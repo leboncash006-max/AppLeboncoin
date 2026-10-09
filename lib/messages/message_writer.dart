@@ -2,6 +2,7 @@ import 'dart:math';
 
 import '../services/gemini_service.dart';
 import '../services/history.dart';
+import '../services/match_check.dart';
 import '../services/offer.dart';
 import 'message_settings.dart';
 
@@ -17,18 +18,6 @@ class MessageWriter {
       'message': {'type': 'STRING'},
     },
     'required': ['message'],
-  };
-
-  static const _verdictSchema = {
-    'type': 'OBJECT',
-    'properties': {
-      'verdict': {
-        'type': 'STRING',
-        'enum': ['oui', 'doute', 'non'],
-      },
-      'raison': {'type': 'STRING'},
-    },
-    'required': ['verdict', 'raison'],
   };
 
   /// Prix proposé (null = pas de proposition : prix demandé accepté).
@@ -81,35 +70,14 @@ Variante n°${Random().nextInt(100000)} : formulation différente des précéden
     return '${hello[r.nextInt(hello.length)]}, ${dispo[r.nextInt(dispo.length)]} $prop ${end[r.nextInt(end.length)]}';
   }
 
-  /// Verdict IA : les modèles identifiés correspondent-ils à l'annonce ?
-  /// « oui », « doute » ou « non » (en cas d'erreur : « doute »).
+  /// Verdict de correspondance (garde-fou marque + IA) : « oui », « doute »
+  /// ou « non ». Celui de l'analyse s'il a été fait, sinon calculé maintenant.
   Future<({String verdict, String reason})> verify(HistoryEntry e) async {
-    final items = e.analysis.items
-        .where((i) => i.mpbModel != null)
-        .map((i) => '- ${i.item.type} : ${i.mpbModel}')
-        .join('\n');
-    if (items.isEmpty) return (verdict: 'non', reason: 'Aucun modèle identifié');
-    final prompt = '''
-Tu vérifies une identification de matériel photo d'occasion.
-Annonce Leboncoin :
-Titre : ${e.title}
-${e.attributesText}
-Description : """
-${e.description}
-"""
-Modèles identifiés (catalogue MPB) :
-$items
-
-Réponds « oui » seulement si CHAQUE modèle identifié est sans ambiguïté celui vendu (même
-version, même monture). « doute » si une version, une monture ou la présence d'un élément est
-incertaine, ou si un élément vendu manque. « non » si au moins un modèle est faux (ex. objectif
-intégré d'un compact pris pour un objectif séparé, accessoire pris pour un boîtier).''';
-    try {
-      final r = await gemini.generateJson(prompt, _verdictSchema);
-      final v = (r['verdict'] ?? 'doute').toString();
-      return (verdict: ['oui', 'doute', 'non'].contains(v) ? v : 'doute', reason: (r['raison'] ?? '').toString());
-    } catch (e) {
-      return (verdict: 'doute', reason: 'Vérification IA impossible : $e');
-    }
+    final a = e.analysis;
+    if (a.aiVerdict != null) return (verdict: a.aiVerdict!, reason: a.aiReason);
+    final v = await MatchCheck.run(gemini, a, e.title, e.attributesText, e.description);
+    a.aiVerdict = v.verdict;
+    a.aiReason = v.reason;
+    return v;
   }
 }

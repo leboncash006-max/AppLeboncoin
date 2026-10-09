@@ -43,14 +43,16 @@ questions à l'IA sur l'annonce.
    l'appli. Les appels MPB partent donc d'une page mpb.com ouverte dans une WebView
    repliée (`lib/services/mpb_web_transport.dart`), comme un vrai navigateur. Si MPB
    demande une vérification, la WebView se déplie pour que tu la fasses.
-5. **Identification sans IA (par défaut)** : `lib/services/local_identifier.dart` reconnaît
-   boîtiers (marque + référence : 1200D, A68, X-T3, a7 III…), objectifs (marque citée +
-   focale 18-55, départagée par l'ouverture et IS/STM/VR/II ; focale fixe : ouverture
-   exigée, car « 55mm » seul est souvent un filtre ; montures anciennes FD/FL/M42 respectées), flashs, défauts (HS, pour pièces,
-   champignon, rayure…, en ignorant « aucune rayure »), déclenchements et état, avec le
-   catalogue MPB local. **Aucun appel à Gemini** quand quelque chose est reconnu ; Gemini ne
-   sert qu'en secours (rien reconnu, catalogue absent). Réglages › « Identification sans IA ».
-   Le chat « Poser une question » reste sur Gemini.
+5. **Identification par l'IA partout** (`gemini-flash-lite-latest`) : Gemini lit
+   l'annonce (y compris les noms abrégés : « Sony a68 » → Sony Alpha SLT-A68), puis
+   choisit le nom exact parmi les candidats du catalogue MPB. Le moteur local
+   (`lib/services/local_identifier.dart`) ne sert qu'en **secours** si l'IA ne répond pas
+   (quota, réseau) : l'écran résultat l'indique et les modèles restent « à vérifier ».
+   **Vérification de correspondance** (`lib/services/match_check.dart`) : après
+   l'identification, un garde-fou sans IA contrôle que la marque de chaque modèle figure
+   dans l'annonce (sinon verdict « non »), puis Gemini rend un verdict **oui / doute /
+   non**. Hors « oui », une alerte s'affiche et les modèles sont marqués incertains.
+   Sans verdict « oui », aucun message n'est envoyé automatiquement.
 5 bis. **Catalogue local des noms exacts** : le moteur de recherche MPB ne trouve un modèle
    qu'avec son nom quasi exact (« Sony A68 » ne trouve pas « Sony Alpha SLT-A68 »).
    L'appli télécharge donc une fois la liste complète des modèles MPB (nom exact +
@@ -220,7 +222,7 @@ Message écrit → Envoyé ». Le bouton **STOP** arrête l'envoi à tout moment
 Le radar envoie seul **uniquement si tout est réuni** :
 
 - marge au-dessus du seuil ;
-- verdict IA « oui » (l'identification correspond à l'annonce) ;
+- verdict IA « oui » (garde-fou marque + vérification de correspondance, faite pendant l'analyse ; sans « oui », jamais d'envoi auto) ;
 - aucune alerte (pièces, défaut, version incertaine) ;
 - annonce jamais contactée ;
 - prix connu.
@@ -315,7 +317,8 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 ## Fichiers
 - `lib/services/leboncoin_reader.dart` : lecture de la page (testé sur la structure réelle le 09/10/2026)
 - `lib/services/mpb_web_transport.dart` : requêtes MPB depuis une WebView mpb.com
-- `lib/services/local_identifier.dart` : identification sans IA
+- `lib/services/local_identifier.dart` : identification de secours sans IA
+- `lib/services/match_check.dart` : garde-fou marque + verdict IA oui/doute/non
 - `lib/screens/export_pdf.dart`, `assets/fonts/` : export PDF (police Roboto, Apache 2.0)
 - `lib/services/mpb_catalog.dart` : catalogue local des noms exacts MPB
 - `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)

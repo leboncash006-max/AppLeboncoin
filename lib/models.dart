@@ -129,6 +129,14 @@ class Analysis {
   final String condition;
   final String prudentCondition;
 
+  /// Vérification IA de correspondance annonce ↔ modèles : oui | doute | non
+  /// (null = pas faite). Sans « oui », jamais d'envoi automatique.
+  String? aiVerdict;
+  String aiReason;
+
+  /// Moteur d'identification : « ia » ou « local » (secours si l'IA échoue).
+  String engine;
+
   Analysis({
     required this.items,
     required this.price,
@@ -138,6 +146,9 @@ class Analysis {
     required this.warnings,
     this.condition = 'good',
     this.prudentCondition = 'well-used',
+    this.aiVerdict,
+    this.aiReason = '',
+    this.engine = 'ia',
   });
 
   double get totalBuyback =>
@@ -165,6 +176,9 @@ class Analysis {
         'warnings': warnings,
         'condition': condition,
         'prudentCondition': prudentCondition,
+        'aiVerdict': aiVerdict,
+        'aiReason': aiReason,
+        'engine': engine,
       };
 
   factory Analysis.fromJson(Map<String, dynamic> j) => Analysis(
@@ -178,5 +192,8 @@ class Analysis {
         warnings: ((j['warnings'] as List?) ?? []).map((e) => '$e').toList(),
         condition: (j['condition'] ?? 'good').toString(),
         prudentCondition: (j['prudentCondition'] ?? 'well-used').toString(),
+        aiVerdict: j['aiVerdict'] as String?,
+        aiReason: (j['aiReason'] ?? '').toString(),
+        engine: (j['engine'] ?? 'ia').toString(),
       );
 }

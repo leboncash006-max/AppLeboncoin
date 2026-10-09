@@ -6,15 +6,11 @@ class Settings {
   double minMargin;
   bool darkTheme;
 
-  /// Identification sans IA (catalogue MPB local) ; Gemini seulement en secours.
-  bool localEngine;
-
   Settings(
       {this.coefBody = 0.54,
       this.coefLens = 0.40,
       this.minMargin = 30,
-      this.darkTheme = true,
-      this.localEngine = true});
+      this.darkTheme = true});
 
   static Future<Settings> load() async {
     final p = await SharedPreferences.getInstance();
@@ -23,7 +19,6 @@ class Settings {
       coefLens: p.getDouble('coefLens') ?? 0.40,
       minMargin: p.getDouble('minMargin') ?? 30,
       darkTheme: p.getBool('darkTheme') ?? true,
-      localEngine: p.getBool('localEngine') ?? true,
     );
   }
 
@@ -33,6 +28,5 @@ class Settings {
     await p.setDouble('coefLens', coefLens);
     await p.setDouble('minMargin', minMargin);
     await p.setBool('darkTheme', darkTheme);
-    await p.setBool('localEngine', localEngine);
   }
 }

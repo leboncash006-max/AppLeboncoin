@@ -85,21 +85,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: SwitchListTile(
-              value: widget.settings.localEngine,
-              onChanged: (v) async {
-                setState(() => widget.settings.localEngine = v);
-                await widget.settings.save();
-              },
-              secondary: const Icon(Icons.offline_bolt_outlined),
-              title: const Text('Identification sans IA', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Boîtiers et objectifs reconnus avec le catalogue MPB local. '
-                  'Gemini seulement si rien n\'est reconnu.'),
-            ),
-          ),
-          const SizedBox(height: 16),
-          AppCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Text('Catalogue MPB', style: t.titleLarge?.copyWith(fontSize: 18)),
               const SizedBox(height: 4),

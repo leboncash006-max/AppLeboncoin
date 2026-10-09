@@ -16,7 +16,17 @@ const inChrome = el => !!el.closest('nav, header, footer, [role=navigation]');
 const clickables = () => Array.from(document.querySelectorAll('button, a, [role=button], input[type=submit]'))
   .filter(el => visible(el) && !inChrome(el));
 const label = el => norm(el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title'));
-const blocked = () => /captcha-delivery|datadome|geo\.captcha/i.test(document.documentElement.innerHTML);
+// Vrai blocage seulement : le script DataDome est présent sur TOUTES les pages
+// Leboncoin, on cherche donc la fenêtre de vérification elle-même (iframe ou page).
+const blocked = () => {
+  const frames = Array.from(document.querySelectorAll('iframe')).filter(f =>
+    /captcha-delivery\.com|geo\.captcha|interstitial|\/captcha/i.test(f.src || '') && visible(f));
+  if (frames.length) return true;
+  if (/captcha-delivery\.com/i.test(location.href)) return true;
+  const txt = norm(document.body ? document.body.innerText : '');
+  return !document.getElementById('__NEXT_DATA__') && txt.length < 600 &&
+    /verification|robot|captcha|acces (temporairement )?(bloque|restreint)/.test(txt);
+};
 const loginPage = () => /connexion|login|auth\.|\/auth|se connecter/.test(norm(location.href)) ||
   Array.from(document.querySelectorAll('input[type=password]')).some(visible);
 const textarea = () => Array.from(document.querySelectorAll('textarea, [contenteditable=true]')).find(visible);

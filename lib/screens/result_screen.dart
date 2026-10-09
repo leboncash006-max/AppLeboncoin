@@ -131,6 +131,7 @@ class _ResultScreenState extends State<ResultScreen> {
     final wrong = item.mpbModel;
     try {
       await repriceItem(item, model, entry.analysis.condition, NativeMpbFetch().service());
+      entry.analysis.aiVerdict = null; // modèle changé : vérification à refaire
       if (wrong != null) await Corrections.add(wrong, model);
       entry.analysis.warnings.removeWhere((w) => wrong != null && w.contains(wrong));
       await _save();
@@ -185,6 +186,14 @@ class _ResultScreenState extends State<ResultScreen> {
           if (a.items.isNotEmpty) ...[
             const SizedBox(height: 22),
             _SectionTitle('Éléments identifiés', trailing: '${a.items.length}'),
+            const SizedBox(height: 4),
+            Text(
+              '${a.engine == 'local' ? 'Identifié par le catalogue local (IA indisponible)' : 'Identifié par l\'IA'}'
+              '${switch (a.aiVerdict) { 'oui' => ' · correspondance vérifiée ✓', 'doute' => ' · vérification : doute', 'non' => ' · vérification : non', _ => '' }}',
+              style: TextStyle(
+                  fontSize: 12.5,
+                  color: a.aiVerdict == 'oui' ? AppColors.good : Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
             const SizedBox(height: 10),
             for (final it in a.items) ...[
               FadeSlideIn(
