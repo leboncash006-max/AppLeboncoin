@@ -1,0 +1,226 @@
+import 'package:flutter/material.dart';
+
+import '../radar/radar_db.dart';
+import '../services/settings.dart';
+import '../theme.dart';
+import '../widgets/common.dart';
+import 'export_pdf.dart';
+import 'result_screen.dart';
+
+/// TOUTES les annonces vues par le radar : analysées (avec marge) et ignorées
+/// (avec la raison), recherche texte, filtres.
+class RadarAllScreen extends StatefulWidget {
+  final Settings settings;
+  const RadarAllScreen({super.key, required this.settings});
+
+  @override
+  State<RadarAllScreen> createState() => _RadarAllScreenState();
+}
+
+class _RadarAllScreenState extends State<RadarAllScreen> {
+  bool _analyzed = true;
+  bool _onlyProfitable = false;
+  String _query = '';
+  int? _search;
+  List<RadarSearch> _searches = [];
+  List<RadarAnalysis> _analyses = [];
+  List<SeenAd> _seen = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final searches = await RadarDb.searches();
+    final analyses = await RadarDb.analyses(searchId: _search);
+    final seen = await RadarDb.seenAds(searchId: _search);
+    if (!mounted) return;
+    setState(() {
+      _searches = searches;
+      _analyses = analyses;
+      _seen = seen;
+    });
+  }
+
+  bool _match(String title) => _query.isEmpty || title.toLowerCase().contains(_query.toLowerCase());
+
+  List<RadarAnalysis> get _shownAnalyses =>
+      _analyses.where((a) => _match(a.title) && (!_onlyProfitable || a.profitable)).toList();
+
+  List<SeenAd> get _shownSeen => _seen.where((a) => _match(a.title)).toList();
+
+  Future<void> _openAnalysis(RadarAnalysis a) async {
+    final entry = a.entry;
+    await Navigator.push(
+        context, MaterialPageRoute(builder: (_) => ResultScreen(entry: entry, settings: widget.settings)));
+    await RadarDb.updateEntry(a.listId, entry);
+  }
+
+  Future<void> _openSeen(SeenAd s) async {
+    final a = await RadarDb.analysis(s.listId);
+    if (a != null) return _openAnalysis(a);
+    if (s.url.isNotEmpty) openExternal(s.url);
+  }
+
+  String _searchName(int id) => _searches.where((s) => s.id == id).map((s) => s.name).firstOrNull ?? '';
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final analyses = _shownAnalyses;
+    final seen = _shownSeen;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Toutes les annonces'),
+        actions: [
+          IconButton(
+            tooltip: 'Exporter en PDF',
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: () => showExportSheet(context, widget.settings),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+          children: [
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(value: true, label: Text('Analysées (${_analyses.length})')),
+                ButtonSegment(value: false, label: Text('Toutes vues (${_seen.length})')),
+              ],
+              selected: {_analyzed},
+              onSelectionChanged: (v) => setState(() => _analyzed = v.first),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              decoration: const InputDecoration(hintText: 'Rechercher un titre…', prefixIcon: Icon(Icons.search)),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 40,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                if (_analyzed)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      label: const Text('Rentables'),
+                      selected: _onlyProfitable,
+                      onSelected: (v) => setState(() => _onlyProfitable = v),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: const Text('Toutes recherches'),
+                    selected: _search == null,
+                    onSelected: (_) {
+                      _search = null;
+                      _load();
+                    },
+                  ),
+                ),
+                for (final s in _searches)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(s.name),
+                      selected: _search == s.id,
+                      onSelected: (_) {
+                        _search = s.id;
+                        _load();
+                      },
+                    ),
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 10),
+            if (_analyzed) ...[
+              if (analyses.isEmpty) _empty(cs),
+              for (final a in analyses) ...[
+                _AnalysisTile(a: a, minMargin: widget.settings.minMargin, onTap: () => _openAnalysis(a)),
+                const SizedBox(height: 8),
+              ],
+            ] else ...[
+              if (seen.isEmpty) _empty(cs),
+              for (final s in seen) ...[
+                AppCard(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  onTap: () => _openSeen(s),
+                  child: Row(children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(s.title.isEmpty ? 'Annonce ${s.listId}' : s.title,
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                        Text('${euros(s.price)} · ${_searchName(s.searchId)} · ${shortDate(s.seenAt)}',
+                            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
+                      ]),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(s.reason.isEmpty ? 'vue' : s.reason,
+                          textAlign: TextAlign.end,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: s.reason == 'analysée' ? cs.primary : cs.onSurfaceVariant)),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 6),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _empty(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(child: Text('Rien à afficher.', style: TextStyle(color: cs.onSurfaceVariant))),
+      );
+}
+
+class _AnalysisTile extends StatelessWidget {
+  final RadarAnalysis a;
+  final double minMargin;
+  final VoidCallback onTap;
+  const _AnalysisTile({required this.a, required this.minMargin, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final v = verdictFor(a.margin, minMargin);
+    final stage = switch (a.stage) { 'full' => 'complète', 'limit' => 'provisoire', _ => 'pré-analyse' };
+    return Opacity(
+      opacity: a.profitable ? 1 : 0.6,
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        onTap: onTap,
+        child: Row(children: [
+          Container(width: 6, height: 44, decoration: BoxDecoration(color: v.color, borderRadius: BorderRadius.circular(4))),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 3),
+              Text('${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)} · $stage',
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Text(euros(a.margin, signed: true),
+              style: TextStyle(color: v.color, fontWeight: FontWeight.w800, fontSize: 18, fontFeatures: tabular)),
+        ]),
+      ),
+    );
+  }
+}

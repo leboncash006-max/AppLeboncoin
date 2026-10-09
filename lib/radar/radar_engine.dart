@@ -117,6 +117,9 @@ class RadarEngine {
             await RadarDb.log('Notif « $title » : recherche désactivée');
           }
         }
+      } else if (kind == 'test') {
+        // test global : prouve que le service en arrière-plan démarre, sans rien charger
+        await RadarDb.log('Test global : service en arrière-plan OK');
       } else {
         // relance manuelle, périodique ou après vérification : toutes les actives
         toRun.addAll(searches.where((s) => s.active).map((s) => s.id!));
@@ -200,7 +203,13 @@ class RadarEngine {
     }
     final newest = byDate.where((a) => a.date != null && !a.boosted).map((a) => a.date!).fold<DateTime?>(
         s.checkpoint, (m, d) => m == null || d.isAfter(m) ? d : m);
-    await RadarDb.markSeen(s.id!, ads.map((a) => a.listId));
+    // annonces antérieures au point de reprise : vues, pas analysées
+    final freshIds = fresh.map((a) => a.listId).toSet();
+    for (final a in unseen.where((a) => !freshIds.contains(a.listId))) {
+      await RadarDb.markSeenAd(s.id!, a.listId,
+          title: a.subject, price: a.price, url: a.url, publishedAt: a.date,
+          reason: s.checkpoint == null ? 'déjà en ligne au 1er passage' : 'antérieure au point de reprise');
+    }
     await RadarDb.setCheckpoint(s.id!, newest);
 
     final now = DateTime.now();
@@ -214,6 +223,8 @@ class RadarEngine {
       } else if (s.category.isNotEmpty && a.categoryId != s.category) {
         why = 'catégorie ${a.categoryId}';
       }
+      await RadarDb.markSeenAd(s.id!, a.listId,
+          title: a.subject, price: a.price, url: a.url, publishedAt: a.date, reason: why ?? 'analysée');
       if (why == null) {
         candidates.add(a);
       } else {

@@ -19,6 +19,8 @@ dependencies:
   path_provider: ^2.1.5
   sqflite: ^2.4.4
   path: ^1.9.1
+  pdf: ^3.13.1
+  printing: ^5.15.1
 
 dev_dependencies:
   flutter_test:
@@ -30,6 +32,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/icon.png
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
 
 # Icône de l'appli (générée dans le workflow après « flutter create »)
 flutter_launcher_icons:

@@ -108,6 +108,40 @@ class _RadarSetupScreenState extends State<RadarSetupScreen> with WidgetsBinding
                   'Autoriser',
                   RadarBridge.requestNotifications,
                 ),
+                const SizedBox(height: 10),
+                _row(
+                  'Arrière-plan non restreint',
+                  'Paramètres de l\'appli › Batterie › « Non restreinte ». Sur Samsung, vérifie aussi '
+                      'que MPB Check n\'est pas dans « Applications en veille » / « en veille prolongée » '
+                      '(Paramètres › Batterie › Limites d\'utilisation en arrière-plan). Sur Xiaomi : '
+                      'autorise le « Démarrage automatique ».',
+                  !p.backgroundRestricted,
+                  'Ouvrir les paramètres de l\'appli',
+                  RadarBridge.openAppSettings,
+                ),
+                const SizedBox(height: 10),
+                _row(
+                  'Écoute des notifications active',
+                  p.listenerConnected
+                      ? 'Le radar est branché sur les notifications.'
+                      : 'Android a débranché l\'écoute (ou l\'accès vient d\'être donné). '
+                          'Appuie sur « Rebrancher » ; si ça reste rouge, désactive puis réactive '
+                          'l\'accès aux notifications.',
+                  p.listenerConnected,
+                  'Rebrancher',
+                  () async {
+                    await RadarBridge.rebind();
+                    await Future.delayed(const Duration(seconds: 3));
+                    _load();
+                  },
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Chien de garde : toutes les 15 min, l\'appli vérifie que le radar est en route '
+                  'et t\'envoie une notification « Radar arrêté » sinon.'
+                  '${p.watchdogLast == null ? '' : ' Dernier contrôle : ${shortDate(p.watchdogLast!)}.'}',
+                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5),
+                ),
                 const SizedBox(height: 16),
                 AppCard(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),

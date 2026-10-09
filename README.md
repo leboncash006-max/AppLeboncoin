@@ -43,7 +43,14 @@ questions à l'IA sur l'annonce.
    l'appli. Les appels MPB partent donc d'une page mpb.com ouverte dans une WebView
    repliée (`lib/services/mpb_web_transport.dart`), comme un vrai navigateur. Si MPB
    demande une vérification, la WebView se déplie pour que tu la fasses.
-5. **Catalogue local des noms exacts** : le moteur de recherche MPB ne trouve un modèle
+5. **Identification sans IA (par défaut)** : `lib/services/local_identifier.dart` reconnaît
+   boîtiers (marque + référence : 1200D, A68, X-T3, a7 III…), objectifs (focale 18-55,
+   départagée par l'ouverture et IS/STM/VR/II…), flashs, défauts (HS, pour pièces,
+   champignon, rayure…, en ignorant « aucune rayure »), déclenchements et état, avec le
+   catalogue MPB local. **Aucun appel à Gemini** quand quelque chose est reconnu ; Gemini ne
+   sert qu'en secours (rien reconnu, catalogue absent). Réglages › « Identification sans IA ».
+   Le chat « Poser une question » reste sur Gemini.
+5 bis. **Catalogue local des noms exacts** : le moteur de recherche MPB ne trouve un modèle
    qu'avec son nom quasi exact (« Sony A68 » ne trouve pas « Sony Alpha SLT-A68 »).
    L'appli télécharge donc une fois la liste complète des modèles MPB (nom exact +
    identifiant), la garde en local (`lib/services/mpb_catalog.dart`) et la rafraîchit
@@ -120,6 +127,33 @@ déclencheur : il ouvre la recherche, trouve les nouvelles annonces et les analy
   si marge ≥ 2 × seuil). Fil complet dans l'onglet Radar (rentables en haut), filtre par
   recherche, appui → écran résultat avec le chat IA. Tableau de bord du jour.
 
+### Notification déclencheur
+Seule la notification Leboncoin **choisie** lance le radar (et est retirée ensuite) ; les
+autres (messages, offres…) sont ignorées. Radar › menu › **Notification à écouter** (ou
+depuis le test global) : attends une notification de recherche, reviens dans l'appli et
+appuie sur « Écouter celle-ci ». Sans choix, le radar reconnaît le texte habituel
+« … nouveaux résultats … ».
+
+### Fonctionnement en arrière-plan
+L'appli n'a pas besoin de tourner en permanence : Android garde l'écoute des notifications
+branchée et réveille l'appli à chaque notification. Pour que le système ne la coupe pas :
+accès aux notifications, optimisation de batterie désactivée, batterie « Non restreinte »
+(Samsung : retirer des applis en veille ; Xiaomi : démarrage automatique). L'écouteur se
+rebranche tout seul s'il est débranché, et un **chien de garde** (toutes les 15 min) envoie
+une notification **« Radar arrêté »** si l'écoute est coupée, l'accès retiré, l'arrière-plan
+restreint ou un démarrage refusé.
+
+### Test global, toutes les annonces, PDF
+- **Test global** (Radar › Test) : autorisations, écoute des notifications, déclencheur,
+  service en arrière-plan, chien de garde, chaque clé Gemini, catalogue MPB, identification
+  sans IA, API de reprise MPB, lecture d'une page Leboncoin, état du radar. Rapport copiable.
+- **Toutes les annonces** (Radar › Tout voir) : les analysées (marge, recherche texte, filtre
+  « rentables », par recherche) et toutes les annonces vues avec ce que le radar en a fait
+  (analysée, trop chère, trop ancienne, antérieure au point de reprise…).
+- **Export PDF** (Radar › PDF, Tout voir, ou historique de l'onglet Analyse) : toutes les
+  annonces du radar, seulement les rentables, ou l'historique ; aujourd'hui / 7 j / 30 j /
+  tout. Tableau + détail (modèles MPB, 5 prix de reprise, alertes, liens). Partage Android.
+
 ### Limites et sécurité
 - 30 pages d'annonces par heure au maximum, 3 s minimum entre deux pages Leboncoin.
 - **Vérification Leboncoin** (captcha / DataDome) : le radar s'arrête et envoie une
@@ -188,6 +222,8 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 ## Fichiers
 - `lib/services/leboncoin_reader.dart` : lecture de la page (testé sur la structure réelle le 09/10/2026)
 - `lib/services/mpb_web_transport.dart` : requêtes MPB depuis une WebView mpb.com
+- `lib/services/local_identifier.dart` : identification sans IA
+- `lib/screens/export_pdf.dart`, `assets/fonts/` : export PDF (police Roboto, Apache 2.0)
 - `lib/services/mpb_catalog.dart` : catalogue local des noms exacts MPB
 - `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)
 - `lib/services/gemini_service.dart` : appels Gemini (JSON imposé pour l'analyse, chat avec recherche)

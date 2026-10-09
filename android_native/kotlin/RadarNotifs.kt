@@ -17,6 +17,7 @@ object RadarNotifs {
     const val CH_ALERT = "radar_alert"
     const val RUN_ID = 4100
     private const val VERIFY_ID = 4101
+    private const val PROBLEM_ID = 4102
 
     fun channels(ctx: Context) {
         if (Build.VERSION.SDK_INT < 26) return
@@ -69,6 +70,24 @@ object RadarNotifs {
             .build()
         try {
             NotificationManagerCompat.from(ctx).notify(id, n)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /** « Radar arrêté » : appui → écran de mise en route du radar. */
+    fun problem(ctx: Context, title: String, text: String) {
+        channels(ctx)
+        val n = NotificationCompat.Builder(ctx, CH_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_radar)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(appIntent(ctx, "radar_setup", "1", PROBLEM_ID))
+            .build()
+        try {
+            NotificationManagerCompat.from(ctx).notify(PROBLEM_ID, n)
         } catch (_: SecurityException) {
         }
     }

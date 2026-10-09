@@ -29,12 +29,10 @@ class MainActivity : FlutterActivity() {
 
     /** Ouverture depuis une notification du radar (analyse ou vérification). */
     private fun captureLaunch(i: Intent?): Boolean {
-        val analysis = i?.getStringExtra("open_analysis")
-        val verify = i?.getStringExtra("radar_verify")
-        if (analysis == null && verify == null) return false
-        launch = if (analysis != null) mapOf("open_analysis" to analysis) else mapOf("radar_verify" to verify!!)
-        i?.removeExtra("open_analysis")
-        i?.removeExtra("radar_verify")
+        val keys = listOf("open_analysis", "radar_verify", "radar_setup")
+        val key = keys.firstOrNull { i?.getStringExtra(it) != null } ?: return false
+        launch = mapOf(key to i!!.getStringExtra(key)!!)
+        keys.forEach { i.removeExtra(it) }
         return true
     }
 
@@ -44,6 +42,7 @@ class MainActivity : FlutterActivity() {
         val b = HeadlessBrowser(applicationContext)
         browser = b
         MethodChannel(messenger, "mpb_check/browser").setMethodCallHandler(b)
+        RadarWatchdog.schedule(applicationContext) // chien de garde (toutes les 15 min)
         val ch = MethodChannel(messenger, "mpb_check/radar")
         radar = ch
         ch.setMethodCallHandler { call, result ->
@@ -57,6 +56,11 @@ class MainActivity : FlutterActivity() {
                             "batteryExempt" to (pm?.isIgnoringBatteryOptimizations(packageName) == true),
                             "notificationsAllowed" to NotificationManagerCompat.from(this).areNotificationsEnabled(),
                             "enabled" to RadarEvents.isEnabled(this),
+                            "backgroundRestricted" to RadarWatchdog.backgroundRestricted(this),
+                            "listenerConnected" to RadarWatchdog.listenerConnected(),
+                            "watchdogLast" to RadarEvents.getLong(this, "watchdog_last"),
+                            "listenerConnectedAt" to RadarEvents.getLong(this, "listener_connected"),
+                            "problem" to RadarWatchdog.problem(this),
                             "firstPackage" to RadarEvents.firstPackage(this),
                             "pendingEvents" to RadarEvents.hasPending(this)
                         )
@@ -74,6 +78,16 @@ class MainActivity : FlutterActivity() {
                     } catch (_: Exception) {
                         startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     }
+                    result.success(null)
+                }
+                "openAppSettings" -> {
+                    startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                    )
+                    result.success(null)
+                }
+                "rebind" -> {
+                    RadarWatchdog.rebind(this)
                     result.success(null)
                 }
                 "requestNotifications" -> {
@@ -96,6 +110,14 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "takeEvents" -> result.success(RadarEvents.drain(this))
+                "recentNotifs" -> result.success(
+                    mapOf("recent" to RadarEvents.recent(this), "active" to RadarNotificationListener.activeLeboncoin())
+                )
+                "getTrigger" -> result.success(RadarEvents.trigger(this))
+                "setTrigger" -> {
+                    RadarEvents.setTrigger(this, call.argument<String>("text"), call.argument<String>("channel"))
+                    result.success(null)
+                }
                 "takeLaunch" -> {
                     result.success(launch)
                     launch = null

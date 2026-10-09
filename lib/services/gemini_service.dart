@@ -138,6 +138,25 @@ class GeminiService {
     return jsonDecode(text) as Map<String, dynamic>;
   }
 
+  /// Test d'une clé (test global), sans toucher à la clé en cours de l'appli.
+  /// Rend « OK », « quota atteint », « invalide » ou le message d'erreur.
+  Future<String> testKey(String key) async {
+    final model = _workingModel ?? models.first;
+    try {
+      await _call(key, model, 'Réponds {"ok": true}.',
+          const {'type': 'OBJECT', 'properties': {'ok': {'type': 'BOOLEAN'}}});
+      return 'OK';
+    } on _QuotaError {
+      return 'quota atteint';
+    } on _KeyError {
+      return 'invalide';
+    } on _ModelError {
+      return 'modèle $model indisponible';
+    } catch (e) {
+      return e.toString().replaceFirst('Exception: ', '');
+    }
+  }
+
   // ------------------------------------------------------------------ chat
 
   /// Conversation libre (pas de responseSchema) avec l'outil Google Search.

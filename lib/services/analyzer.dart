@@ -1,13 +1,13 @@
 import '../data/real_quotes.dart';
 import '../models.dart';
 import 'gemini_service.dart';
+import 'local_identifier.dart';
 import 'mpb_catalog.dart';
 import 'mpb_service.dart';
 import 'settings.dart';
 
 /// Variantes du catalogue MPB qu'on écarte sauf si l'annonce les mentionne.
-final _special = RegExp(r'astro|infrarouge|converti|modifi|full spectrum',
-    caseSensitive: false);
+final _special = RegExp(r'astro|infrarouge|converti|modifi|full spectrum', caseSensitive: false);
 
 const _extractSchema = {
   'type': 'OBJECT',
@@ -157,92 +157,107 @@ class Analyzer {
     ].join('\n').trim();
     final warnings = <String>[];
 
-    // 1. Gemini comprend l'annonce
-    onStep?.call("Lecture de l'annonce…");
-    final ext = await gemini.generateJson(_extractPrompt(ad), _extractSchema);
-    final extracted = ((ext['items'] as List?) ?? [])
-        .map((e) => ExtractedItem.fromJson(Map<String, dynamic>.from(e)))
-        .where((e) => e.type != 'autre')
-        .toList();
-    price ??= (ext['price_in_text'] as num?)?.toDouble();
-    final defects = ((ext['defects'] as List?) ?? []).map((e) => '$e').toList();
-
-    // 2. Recherche des candidats dans le catalogue MPB
-    onStep?.call('Recherche dans le catalogue MPB…');
+    // 0. Mode local : identification SANS IA (catalogue MPB + mots-clés).
+    //    Gemini ne sert qu'en secours, si rien n'est reconnu.
+    final local = settings.localEngine && catalog != null
+        ? LocalIdentifier(catalog!).identify(title, description, attributes)
+        : null;
+    final useLocal = local != null && local.items.isNotEmpty;
+    var ext = <String, dynamic>{};
+    var defects = <String>[];
     final adLower = ad.toLowerCase();
     final results = <ItemResult>[];
     String? searchError;
     final failedSearch = <ExtractedItem>{};
-    final exactMatches = <ExtractedItem, String>{};
-    for (final it in extracted) {
-      final cands = <String>{};
-      // a) catalogue local : nom exact, sinon noms les plus proches (sans réseau)
-      final cat = catalog;
-      if (cat != null) {
-        final exact = cat.exact(it.nameGuess);
-        if (exact != null) {
-          exactMatches[it] = exact;
-          cands.add(exact);
-        } else {
-          cands.addAll(cat.match('${it.nameGuess} ${it.searchQuery}', brand: it.brand));
+    if (useLocal) {
+      onStep?.call('Identification locale (sans IA)…');
+      results.addAll(local.items);
+      defects = local.defects;
+      price ??= local.priceInText;
+      ext = {'condition_hint': local.conditionHint, 'shutter_count': local.shutterCount};
+      onStep?.call('Catalogue MPB : ${local.items.length} élément(s) reconnu(s)');
+    } else {
+      // 1. Gemini comprend l'annonce
+      onStep?.call("Lecture de l'annonce…");
+      ext = await gemini.generateJson(_extractPrompt(ad), _extractSchema);
+      final extracted = ((ext['items'] as List?) ?? [])
+          .map((e) => ExtractedItem.fromJson(Map<String, dynamic>.from(e)))
+          .where((e) => e.type != 'autre')
+          .toList();
+      price ??= (ext['price_in_text'] as num?)?.toDouble();
+      defects = ((ext['defects'] as List?) ?? []).map((e) => '$e').toList();
+
+      // 2. Recherche des candidats dans le catalogue MPB
+      onStep?.call('Recherche dans le catalogue MPB…');
+      final exactMatches = <ExtractedItem, String>{};
+      for (final it in extracted) {
+        final cands = <String>{};
+        // a) catalogue local : nom exact, sinon noms les plus proches (sans réseau)
+        final cat = catalog;
+        if (cat != null) {
+          final exact = cat.exact(it.nameGuess);
+          if (exact != null) {
+            exactMatches[it] = exact;
+            cands.add(exact);
+          } else {
+            cands.addAll(cat.match('${it.nameGuess} ${it.searchQuery}', brand: it.brand));
+          }
         }
+        // b) moteur de recherche MPB, seulement sans catalogue ou sans résultat
+        if (cands.isEmpty) {
+          final codes =
+              MpbCatalog.tokens(it.nameGuess).where((w) => w.contains(RegExp(r'\d'))).join(' ');
+          final queries = [
+            it.searchQuery,
+            it.nameGuess,
+            '${it.brand} ${it.nameGuess}',
+            if (codes.isNotEmpty) '${it.brand} $codes',
+          ];
+          for (final q in queries) {
+            if (cands.length >= 6) break;
+            try {
+              cands.addAll(await mpb.suggest(q));
+            } catch (e) {
+              searchError ??= e.toString().replaceFirst('Exception: ', '');
+              failedSearch.add(it);
+              break;
+            }
+          }
+        }
+        final filtered = cands
+            .where((c) => !_special.hasMatch(c) || _special.hasMatch(adLower))
+            .take(12)
+            .toList();
+        final r = ItemResult(it, filtered);
+        final exact = exactMatches[it];
+        if (exact != null && filtered.contains(exact)) {
+          // nom exact du catalogue : pas besoin de demander à l'IA
+          r.mpbModel = exact;
+          r.confident = true;
+          r.reason = 'Nom exact du catalogue MPB';
+        }
+        results.add(r);
       }
-      // b) moteur de recherche MPB, seulement sans catalogue ou sans résultat
-      if (cands.isEmpty) {
-        final codes = MpbCatalog.tokens(it.nameGuess)
-            .where((w) => w.contains(RegExp(r'\d')))
-            .join(' ');
-        final queries = [
-          it.searchQuery,
-          it.nameGuess,
-          '${it.brand} ${it.nameGuess}',
-          if (codes.isNotEmpty) '${it.brand} $codes',
-        ];
-        for (final q in queries) {
-          if (cands.length >= 6) break;
-          try {
-            cands.addAll(await mpb.suggest(q));
-          } catch (e) {
-            searchError ??= e.toString().replaceFirst('Exception: ', '');
-            failedSearch.add(it);
-            break;
+
+      // 3. Gemini choisit le bon nom parmi les candidats
+      final withCands =
+          results.where((r) => r.candidates.isNotEmpty && r.mpbModel == null).toList();
+      if (withCands.isNotEmpty) {
+        onStep?.call('Identification des modèles exacts…');
+        final ch = await gemini.generateJson(_choosePrompt(ad, withCands), _chooseSchema);
+        for (final c in (ch['choices'] as List? ?? [])) {
+          final idx = (c['index'] as num?)?.toInt();
+          if (idx == null || idx < 0 || idx >= withCands.length) continue;
+          final r = withCands[idx];
+          final model = c['model']?.toString();
+          if (model != null && r.candidates.contains(model)) {
+            r.mpbModel = model;
+            r.confident = c['confident'] == true;
+            r.reason = (c['reason'] ?? '').toString();
           }
         }
       }
-      final filtered = cands
-          .where((c) => !_special.hasMatch(c) || _special.hasMatch(adLower))
-          .take(12)
-          .toList();
-      final r = ItemResult(it, filtered);
-      final exact = exactMatches[it];
-      if (exact != null && filtered.contains(exact)) {
-        // nom exact du catalogue : pas besoin de demander à l'IA
-        r.mpbModel = exact;
-        r.confident = true;
-        r.reason = 'Nom exact du catalogue MPB';
-      }
-      results.add(r);
-    }
-
-    // 3. Gemini choisit le bon nom parmi les candidats
-    final withCands =
-        results.where((r) => r.candidates.isNotEmpty && r.mpbModel == null).toList();
-    if (withCands.isNotEmpty) {
-      onStep?.call('Identification des modèles exacts…');
-      final ch = await gemini.generateJson(
-          _choosePrompt(ad, withCands), _chooseSchema);
-      for (final c in (ch['choices'] as List? ?? [])) {
-        final idx = (c['index'] as num?)?.toInt();
-        if (idx == null || idx < 0 || idx >= withCands.length) continue;
-        final r = withCands[idx];
-        final model = c['model']?.toString();
-        if (model != null && r.candidates.contains(model)) {
-          r.mpbModel = model;
-          r.confident = c['confident'] == true;
-          r.reason = (c['reason'] ?? '').toString();
-        }
-      }
-    }
+    } // fin de l'identification par Gemini
 
     // 4. Prix : reprise réelle MPB pour l'état annoncé ; en secours seulement,
     //    vraie estimation enregistrée ou revente MPB en état Bon × coefficient.

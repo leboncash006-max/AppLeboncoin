@@ -10,6 +10,7 @@ import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'analysis_screen.dart';
+import 'export_pdf.dart';
 import 'result_screen.dart';
 import 'settings_screen.dart';
 
@@ -266,9 +267,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       style: TextStyle(
                           fontSize: 12.5, fontWeight: FontWeight.w700, color: cs.primary)),
                 const Spacer(),
-                if (_history.isNotEmpty)
+                if (_history.isNotEmpty) ...[
                   Text('Glisse pour supprimer',
                       style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                  IconButton(
+                    tooltip: 'Exporter en PDF',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
+                    onPressed: () => showExportSheet(context, s),
+                  ),
+                ],
               ]),
               const SizedBox(height: 10),
             ]),

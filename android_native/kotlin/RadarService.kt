@@ -31,8 +31,11 @@ class RadarService : Service() {
                 ContextCompat.startForegroundService(ctx, Intent(ctx, RadarService::class.java))
             } catch (e: Exception) {
                 // Android 12+ refuse le démarrage en arrière-plan si l'optimisation
-                // de batterie n'est pas désactivée pour l'appli
+                // de batterie n'est pas désactivée pour l'appli : on prévient
                 Log.w("MpbRadar", "Démarrage du service refusé : $e")
+                RadarEvents.setString(ctx, "watchdog_problem", "start")
+                val (title, text) = RadarWatchdog.message("start")
+                RadarNotifs.problem(ctx, title, text)
             }
         }
     }

@@ -5,6 +5,7 @@ import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import 'home_screen.dart';
 import 'radar_screen.dart';
+import 'radar_setup_screen.dart';
 import 'radar_verify_screen.dart';
 import 'result_screen.dart';
 
@@ -45,6 +46,8 @@ class _RootScreenState extends State<RootScreen> {
       await RadarDb.updateEntry(id, entry); // conserve la conversation
     } else if (verify != null) {
       await nav.push(MaterialPageRoute(builder: (_) => RadarVerifyScreen(url: verify)));
+    } else if (l['radar_setup'] != null) {
+      await nav.push(MaterialPageRoute(builder: (_) => const RadarSetupScreen()));
     }
   }
 

@@ -5,10 +5,14 @@ import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'export_pdf.dart';
+import 'radar_all_screen.dart';
 import 'radar_log_screen.dart';
 import 'radar_notifs_screen.dart';
 import 'radar_searches_screen.dart';
 import 'radar_setup_screen.dart';
+import 'radar_test_screen.dart';
+import 'radar_trigger_screen.dart';
 import 'radar_verify_screen.dart';
 import 'result_screen.dart';
 
@@ -109,6 +113,10 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
               onPressed: () => _push(const RadarSearchesScreen())),
           PopupMenuButton<String>(
             onSelected: (v) => switch (v) {
+              'all' => _push(RadarAllScreen(settings: widget.settings)),
+              'pdf' => showExportSheet(context, widget.settings),
+              'test' => _push(const RadarTestScreen()),
+              'trigger' => _push(const RadarTriggerScreen()),
               'notifs' => _push(const RadarNotifsScreen()),
               'setup' => _push(const RadarSetupScreen()),
               'log' => _push(const RadarLogScreen()),
@@ -116,6 +124,10 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'run', child: Text('Lancer maintenant')),
+              PopupMenuItem(value: 'all', child: Text('Toutes les annonces')),
+              PopupMenuItem(value: 'pdf', child: Text('Exporter en PDF')),
+              PopupMenuItem(value: 'test', child: Text('Test global')),
+              PopupMenuItem(value: 'trigger', child: Text('Notification à écouter')),
               PopupMenuItem(value: 'notifs', child: Text('Notifications reçues')),
               PopupMenuItem(value: 'setup', child: Text('Permissions et réglages')),
               PopupMenuItem(value: 'log', child: Text('Journal')),
@@ -146,6 +158,34 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
             _statusCard(cs),
             const SizedBox(height: 12),
             _statsRow(cs),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _push(RadarAllScreen(settings: widget.settings)),
+                  icon: const Icon(Icons.list_alt, size: 18),
+                  label: const Text('Tout voir'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => showExportSheet(context, widget.settings),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  label: const Text('PDF'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _push(const RadarTestScreen()),
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: const Text('Test'),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            _criteriaCard(cs),
             const SizedBox(height: 18),
             if (_searches.isEmpty)
               AppCard(
@@ -239,6 +279,49 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
           style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
         ),
       ]),
+    );
+  }
+
+  /// Ce que le radar regarde quand la notification arrive.
+  Widget _criteriaCard(ColorScheme cs) {
+    final seuil = widget.settings.minMargin.toStringAsFixed(0);
+    final active = _searches.where((s) => s.active).toList();
+    TextStyle sub() => TextStyle(color: cs.onSurfaceVariant, fontSize: 13, height: 1.35);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        shape: const Border(),
+        leading: const Icon(Icons.rule),
+        title: const Text('Critères du radar', style: TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text('Seuil $seuil € · ${active.length} recherche(s)', style: sub()),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Quand la notification Leboncoin choisie arrive (titre = nom de la recherche), le radar :\n'
+            '1. ouvre l\'URL de la recherche (mots-clés, catégorie, lieu, prix… = les filtres de ta '
+            'recherche Leboncoin elle-même) ;\n'
+            '2. prend les nouvelles annonces : les 3 plus récentes la 1re fois, ensuite toutes celles '
+            'parues depuis la dernière vue ;\n'
+            '3. garde celles publiées depuis moins de 24 h, au prix ≤ prix max et de la bonne catégorie ;\n'
+            '4. pré-analyse (titre + état) : s\'arrête si la marge < seuil − 15 € ;\n'
+            '5. sinon ouvre l\'annonce et calcule la marge finale (reprise MPB réelle pour l\'état annoncé) ;\n'
+            '6. te notifie si la marge ≥ $seuil € (priorité haute ≥ ${(widget.settings.minMargin * 2).toStringAsFixed(0)} €).\n'
+            'Le seuil se règle dans Réglages (onglet Analyse › icône réglages).',
+            style: sub(),
+          ),
+          const SizedBox(height: 8),
+          for (final s in _searches)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '• « ${s.name} »${s.active ? '' : ' (désactivée)'} : ≤ ${s.maxPrice.toStringAsFixed(0)} €, '
+                'catégorie ${s.category.isEmpty ? 'toutes' : s.category}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

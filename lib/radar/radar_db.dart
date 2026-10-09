@@ -95,6 +95,27 @@ class RadarAnalysis {
       HistoryEntry.fromJson(Map<String, dynamic>.from(jsonDecode(entryJson) as Map));
 }
 
+/// Annonce vue par le radar (analysée ou non).
+class SeenAd {
+  final String listId;
+  final int searchId;
+  final DateTime seenAt;
+  final String title;
+  final double? price;
+  final String url;
+  final DateTime? publishedAt;
+  final String reason;
+  SeenAd.fromRow(Map<String, Object?> r)
+      : listId = r['list_id'] as String,
+        searchId = (r['search_id'] as int?) ?? 0,
+        seenAt = _date(r['seen_at']) ?? DateTime.now(),
+        title = (r['title'] as String?) ?? '',
+        price = (r['price'] as num?)?.toDouble(),
+        url = (r['url'] as String?) ?? '',
+        publishedAt = _date(r['published_at']),
+        reason = (r['reason'] as String?) ?? '';
+}
+
 class RadarNotifRow {
   final int id;
   final DateTime at;
@@ -129,13 +150,20 @@ class RadarDb {
   static Future<Database> get db async {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'radar.db');
-    _db = await openDatabase(path, version: 1, onCreate: (d, _) async {
+    _db = await openDatabase(path, version: 2, onUpgrade: (d, from, to) async {
+      if (from < 2) {
+        for (final c in ['title TEXT', 'price REAL', 'url TEXT', 'published_at INTEGER', 'reason TEXT']) {
+          await d.execute('ALTER TABLE seen_ads ADD COLUMN $c');
+        }
+      }
+    }, onCreate: (d, _) async {
       await d.execute('''CREATE TABLE searches(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, url TEXT, active INTEGER,
         max_price REAL, category TEXT, checkpoint INTEGER, last_loaded_at INTEGER,
         created_at INTEGER)''');
       await d.execute('''CREATE TABLE seen_ads(
-        list_id TEXT PRIMARY KEY, search_id INTEGER, seen_at INTEGER)''');
+        list_id TEXT PRIMARY KEY, search_id INTEGER, seen_at INTEGER, title TEXT, price REAL,
+        url TEXT, published_at INTEGER, reason TEXT)''');
       await d.execute('''CREATE TABLE analyses(
         list_id TEXT PRIMARY KEY, search_id INTEGER, search_name TEXT, title TEXT,
         price REAL, url TEXT, published_at INTEGER, stage TEXT, margin REAL,
@@ -194,6 +222,34 @@ class RadarDb {
     await b.commit(noResult: true);
   }
 
+  /// Annonce vue avec son titre, son prix et ce que le radar en a fait.
+  static Future<void> markSeenAd(int searchId, String listId,
+      {required String title, double? price, String url = '', DateTime? publishedAt, required String reason}) async {
+    await (await db).insert(
+        'seen_ads',
+        {
+          'list_id': listId,
+          'search_id': searchId,
+          'seen_at': _now(),
+          'title': title,
+          'price': price,
+          'url': url,
+          'published_at': publishedAt?.millisecondsSinceEpoch,
+          'reason': reason,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Toutes les annonces vues (les plus récentes d'abord), avec la raison.
+  static Future<List<SeenAd>> seenAds({int? searchId, int limit = 1000}) async =>
+      (await (await db).query('seen_ads',
+              where: searchId == null ? null : 'search_id = ?',
+              whereArgs: searchId == null ? null : [searchId],
+              orderBy: 'seen_at DESC',
+              limit: limit))
+          .map(SeenAd.fromRow)
+          .toList();
+
   // ------------------------------------------------------------------ analyses
 
   static Future<void> saveAnalysis({
@@ -228,7 +284,7 @@ class RadarDb {
   }
 
   /// Fil : rentables en haut, puis les plus récentes.
-  static Future<List<RadarAnalysis>> analyses({int? searchId, int limit = 200}) async =>
+  static Future<List<RadarAnalysis>> analyses({int? searchId, int limit = 5000}) async =>
       (await (await db).query('analyses',
               where: searchId == null ? null : 'search_id = ?',
               whereArgs: searchId == null ? null : [searchId],
