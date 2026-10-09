@@ -1,6 +1,6 @@
 /// Clés API Gemini (appli strictement personnelle — garder le dépôt PRIVÉ).
-/// La première est utilisée ; les suivantes servent de secours si une clé
-/// est invalide ou révoquée.
+/// Clés du même compte : la première est utilisée ; on passe à la suivante si
+/// une clé est invalide, révoquée ou à court de quota (429).
 const List<String> geminiKeys = [
   'AQ.Ab8RN6LcYqBfbAhLFxLaCdSRr9OVOVP2gIgghkUP-eGLxQSNww',
   'AQ.Ab8RN6J13l0IOTsTS7MAIL4mlq53VRtbTOiXpJ5pM7N7SaDnHA',

@@ -6,6 +6,11 @@ import '../secrets.dart';
 
 class _KeyError implements Exception {}
 
+/// Quota atteint (429) pour la clé en cours : on passe à la clé suivante.
+class _QuotaError implements Exception {}
+
+const _quotaMessage = 'Quota Gemini atteint sur toutes les clés. Réessaie dans quelques minutes.';
+
 class _ModelError implements Exception {}
 
 class _ToolError implements Exception {}
@@ -23,8 +28,9 @@ const chatSearchFallbackModel = 'gemini-flash-latest';
 
 /// Appel à l'API Gemini avec réponse JSON imposée par un schéma.
 /// - Modèles essayés dans l'ordre de [geminiModels] (repli si l'alias n'existe pas).
-/// - Clés de [geminiKeys] : la suivante n'est utilisée que si la précédente est
-///   invalide ou révoquée (pas de rotation pour contourner les quotas).
+/// - Clés de [geminiKeys] (même compte) : on passe à la suivante si la clé en
+///   cours est invalide ou si son quota est atteint (429) ; la clé qui marche est
+///   gardée pour la suite de la session.
 class GeminiService {
   final List<String> keys;
   final List<String> models;
@@ -45,6 +51,7 @@ class GeminiService {
       ...models.where((m) => m != _workingModel),
     ];
     for (final model in modelOrder) {
+      var quotaHits = 0;
       while (_keyIndex < keys.length) {
         try {
           final res = await _call(keys[_keyIndex], model, prompt, schema);
@@ -52,6 +59,10 @@ class GeminiService {
           return res;
         } on _KeyError {
           _keyIndex++; // clé invalide : on passe à la clé de secours suivante
+        } on _QuotaError {
+          // quota épuisé sur cette clé : clé suivante (toutes essayées → erreur)
+          if (++quotaHits >= keys.length) throw Exception(_quotaMessage);
+          _keyIndex = (_keyIndex + 1) % keys.length;
         } on _ModelError {
           break; // modèle inconnu : on essaie le modèle suivant
         }
@@ -92,7 +103,7 @@ class GeminiService {
               body: body)
           .timeout(const Duration(seconds: 40));
       // limite par minute : on patiente un peu et on réessaie la même clé
-      if (r.statusCode == 429 && attempt < 2) {
+      if (r.statusCode == 429 && attempt < 1) {
         await Future.delayed(Duration(seconds: 4 * (attempt + 1)));
         continue;
       }
@@ -113,9 +124,7 @@ class GeminiService {
           (r.statusCode == 400 && (low.contains('api key') || low.contains('api_key')))) {
         throw _KeyError();
       }
-      if (r.statusCode == 429) {
-        throw Exception('Quota Gemini atteint pour le moment. Réessaie dans quelques minutes.');
-      }
+      if (r.statusCode == 429) throw _QuotaError();
       throw Exception('Gemini ${r.statusCode} : $msg');
     }
 
@@ -133,7 +142,7 @@ class GeminiService {
 
   /// Conversation libre (pas de responseSchema) avec l'outil Google Search.
   /// Ordre : modèle habituel + recherche → [chatSearchFallbackModel] + recherche
-  /// → modèle habituel sans outil. Mêmes clés de secours que [generateJson].
+  /// → modèle habituel sans outil. Mêmes clés (et bascule sur quota) que [generateJson].
   Future<ChatReply> chat(
       String systemInstruction, List<({String role, String text})> turns) async {
     final primary = [
@@ -147,11 +156,15 @@ class GeminiService {
     ];
     Object? lastError;
     for (final a in attempts) {
+      var quotaHits = 0;
       while (_keyIndex < keys.length) {
         try {
           return await _chatCall(keys[_keyIndex], a.model, systemInstruction, turns, a.search);
         } on _KeyError {
           _keyIndex++;
+        } on _QuotaError {
+          if (++quotaHits >= keys.length) throw Exception(_quotaMessage);
+          _keyIndex = (_keyIndex + 1) % keys.length;
         } on _ModelError catch (e) {
           lastError = e;
           break;
@@ -203,7 +216,7 @@ class GeminiService {
               headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
               body: body)
           .timeout(const Duration(seconds: 60));
-      if (r.statusCode == 429 && attempt < 2) {
+      if (r.statusCode == 429 && attempt < 1) {
         await Future.delayed(Duration(seconds: 4 * (attempt + 1)));
         continue;
       }
@@ -224,10 +237,7 @@ class GeminiService {
           (r.statusCode == 400 && (low.contains('api key') || low.contains('api_key')))) {
         throw _KeyError();
       }
-      if (r.statusCode == 429) {
-        throw Exception('Quota Gemini atteint pour le moment (trop de questions '
-            'ou de recherches web). Réessaie dans quelques minutes.');
-      }
+      if (r.statusCode == 429) throw _QuotaError();
       if (search &&
           r.statusCode == 400 &&
           (low.contains('tool') || low.contains('search') || low.contains('grounding'))) {

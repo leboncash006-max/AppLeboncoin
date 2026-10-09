@@ -142,9 +142,10 @@ déclencheur : il ouvre la recherche, trouve les nouvelles annonces et les analy
 
 ## Clés et modèles Gemini
 Dans `lib/secrets.dart` : modèle `gemini-flash-lite-latest` (repli automatique sur
-`gemini-3.5-flash-lite` si l'alias est refusé) et clés API en dur. La première clé est
-utilisée ; les suivantes ne servent que si elle est invalide ou révoquée (pas de rotation
-pour contourner les quotas).
+`gemini-3.5-flash-lite` si l'alias est refusé) et clés API en dur (même compte). La première
+clé est utilisée ; on passe à la suivante si elle est invalide ou à court de quota (429,
+après une relance de 4 s). La clé qui marche est gardée pour la suite ; si toutes sont à
+court de quota, un message clair s'affiche.
 
 Pour le chat (`GeminiService.chat`) : texte libre, sans `responseSchema`, avec l'outil
 `google_search`. Si le modèle refuse l'outil, l'appel est refait avec
