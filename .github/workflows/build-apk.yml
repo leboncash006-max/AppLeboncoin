@@ -67,6 +67,17 @@ jobs:
           $APKSIGNER verify --print-certs build/app/outputs/flutter-apk/app-release.apk | tee certs.txt
           grep -qi "SHA-256 digest: 591076acec1a6d93192bb4aa230295f37fb04d27b9a551a6fe109de081817347" certs.txt
 
+      # garde-fou : R8 ne doit pas retirer le constructeur de la base WorkManager
+      # (sinon l'appli plante au démarrage, avant même de s'ouvrir)
+      - name: Vérifier WorkManager dans l'APK
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)
+          mkdir -p apkx && unzip -q -o build/app/outputs/flutter-apk/app-release.apk 'classes*.dex' -d apkx
+          for d in apkx/classes*.dex; do ${BT}dexdump "$d"; done > dex.txt
+          grep -A40 "Class descriptor  : 'Landroidx/work/impl/WorkDatabase_Impl;'" dex.txt | grep -q "<init>" \
+            || { echo "WorkDatabase_Impl.<init> absent : l'appli planterait au démarrage"; exit 1; }
+          echo "WorkDatabase_Impl.<init> présent"
+
       - uses: actions/upload-artifact@v4
         with:
           name: mpb-check-apk
