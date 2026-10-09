@@ -17,6 +17,8 @@ dependencies:
   google_fonts: ^8.2.1
   flutter_markdown_plus: ^1.0.12
   path_provider: ^2.1.5
+  sqflite: ^2.4.4
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

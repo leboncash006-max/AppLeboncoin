@@ -32,6 +32,11 @@ jobs:
       - name: Compléter le manifeste Android
         run: python3 tool/patch_manifest.py android/app/src/main/AndroidManifest.xml
 
+      # RADAR : code Kotlin (écoute des notifications, service de premier plan,
+      # WebView sans affichage, WorkManager), permissions et dépendances androidx
+      - name: Radar (Android natif)
+        run: python3 tool/patch_radar.py android
+
       # receive_sharing_intent 1.9 est compilé contre l'API 37 : l'appli doit l'être aussi
       # (minSdk et targetSdk restent ceux de Flutter)
       - name: compileSdk 37

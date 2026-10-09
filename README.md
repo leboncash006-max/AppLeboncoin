@@ -79,6 +79,67 @@ questions à l'IA sur l'annonce.
 
 Saisie manuelle : bouton « Saisir le texte à la main » sous le champ du lien.
 
+## Radar : analyse automatique des recherches enregistrées
+
+L'appli Leboncoin envoie une notification par recherche enregistrée (titre = nom de la
+recherche, texte « De nouveaux résultats sont disponibles »). Le radar s'en sert comme
+déclencheur : il ouvre la recherche, trouve les nouvelles annonces et les analyse tout seul.
+
+### Mise en route
+1. Onglet **Radar** › menu › **Permissions et réglages** : les trois lignes doivent être vertes.
+   - **Accès aux notifications** : active « MPB Check Radar ».
+   - **Optimisation de la batterie désactivée** : obligatoire, c'est ce qui autorise le
+     service de premier plan à démarrer en arrière-plan (Android 12+).
+   - **Notifications de MPB Check** (Android 13+).
+2. Onglet **Radar** › icône loupe › **Ajouter** : nom = **exactement** le titre de la
+   notification Leboncoin (« objectif », « TOUTES CATÉGORIES »… ; casse et accents
+   ignorés), URL `leboncoin.fr/recherche?…` (`sort=time` est ajouté si absent), prix max
+   (200 € par défaut), catégorie (16 = Photo, audio & vidéo par défaut).
+   Une notification reçue sans recherche associée apparaît dans **Notifications reçues**,
+   avec un bouton « Créer la recherche ».
+
+### Fonctionnement
+- `RadarNotificationListener.kt` reçoit les notifications dont le package contient
+  « leboncoin », met l'événement en file et lance `RadarService.kt` (service de premier plan
+  court, notification discrète « Radar : … »). La notification de recherche est ensuite
+  **retirée** pour pouvoir réapparaître normalement (les messages Leboncoin ne sont pas touchés).
+- Le service démarre le code Dart du radar (`radarMain`, `lib/radar/`) dans un moteur Flutter
+  sans écran. Un seul traitement à la fois ; plusieurs notifications sont fusionnées ; au
+  moins 60 s entre deux chargements d'une même recherche.
+- La page de recherche est lue dans une WebView sans affichage (`HeadlessBrowser.kt`, cookies
+  partagés avec la WebView visible) : `__NEXT_DATA__ › props.pageProps.searchData.ads`.
+- **Nouvelles annonces** : la 1re fois, les **3 plus récentes** ; ensuite, **toutes celles
+  parues depuis la dernière vue** (point de reprise enregistré par recherche + table des
+  annonces vues). Les annonces boostées, en tête mais souvent anciennes, sont triées par date.
+  Gardées si : jamais vue, prix ≤ max, bonne catégorie, publiée il y a moins de 24 h.
+- **Analyse en 2 temps** : (a) pré-analyse sur titre + attributs (Gemini + prix MPB réel) ;
+  si la marge provisoire < seuil − 15 €, on s'arrête là ; (b) sinon la page de l'annonce est
+  ouverte et analysée avec sa description.
+- **Résultat** : notification si marge ≥ seuil (« +45 € · Canon EOS 1200D + 18-55 »,
+  « 50 € → reprise 95 € (Excellent) · objectif », boutons Annonce / Analyse ; priorité haute
+  si marge ≥ 2 × seuil). Fil complet dans l'onglet Radar (rentables en haut), filtre par
+  recherche, appui → écran résultat avec le chat IA. Tableau de bord du jour.
+
+### Limites et sécurité
+- 30 pages d'annonces par heure au maximum, 3 s minimum entre deux pages Leboncoin.
+- **Vérification Leboncoin** (captcha / DataDome) : le radar s'arrête et envoie une
+  notification « Leboncoin demande une vérification ». À l'appui, la page s'ouvre dans une
+  WebView **visible** : tu fais la vérification toi-même, puis « C'est fait » relance le radar.
+  Aucun contournement, aucune résolution automatique.
+- 3 échecs réseau de suite : pause de 30 min.
+- **Filet de sécurité** (désactivé par défaut) : WorkManager relance les recherches actives
+  toutes les 60 min, avec les mêmes limites.
+- Journal : Radar › menu › Journal (ou Réglages › Journal du radar).
+- Stockage : sqflite (`radar.db` : recherches, annonces vues, analyses, notifications, journal).
+
+### Fichiers
+- `android_native/kotlin/` : code Kotlin copié dans le projet Android par `tool/patch_radar.py`
+  (qui ajoute aussi les permissions FOREGROUND_SERVICE(_DATA_SYNC), POST_NOTIFICATIONS,
+  REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, le service BIND_NOTIFICATION_LISTENER_SERVICE et les
+  dépendances androidx).
+- `lib/radar/` : base de données, moteur, navigateur sans affichage, pont Android.
+- `lib/screens/radar_*.dart` : écrans du radar.
+
 ## Clés et modèles Gemini
 Dans `lib/secrets.dart` : modèle `gemini-flash-lite-latest` (repli automatique sur
 `gemini-3.5-flash-lite` si l'alias est refusé) et clés API en dur. La première clé est
@@ -116,6 +177,7 @@ Le workflow génère `android/` avec `flutter create`, complète le manifeste av
 flutter create --org fr.eddybonnet --project-name mpb_check --platforms android .
 python3 tool/patch_manifest.py
 python3 tool/patch_signing.py
+python3 tool/patch_radar.py android
 flutter pub get
 dart run flutter_launcher_icons
 flutter build apk --release

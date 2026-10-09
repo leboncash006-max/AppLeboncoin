@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../services/mpb_catalog.dart';
 import '../services/settings.dart';
+import 'radar_log_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -139,6 +140,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     labelText: 'Marge mini pour « bonne affaire »', suffixText: '€'),
               ),
             ]),
+          ),
+          const SizedBox(height: 16),
+          AppCard(
+            padding: EdgeInsets.zero,
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const RadarLogScreen())),
+            child: const ListTile(
+              leading: Icon(Icons.receipt_long_outlined),
+              title: Text('Journal du radar', style: TextStyle(fontWeight: FontWeight.w600)),
+              trailing: Icon(Icons.chevron_right),
+            ),
           ),
           const SizedBox(height: 20),
           FilledButton.icon(

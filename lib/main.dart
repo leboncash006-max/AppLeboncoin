@@ -1,7 +1,10 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'screens/home_screen.dart';
+import 'radar/radar_engine.dart';
+import 'screens/root_screen.dart';
 import 'services/settings.dart';
 import 'theme.dart';
 
@@ -32,9 +35,22 @@ class MyApp extends StatelessWidget {
           theme: buildTheme(Brightness.light),
           darkTheme: buildTheme(Brightness.dark),
           themeMode: dark ? ThemeMode.dark : ThemeMode.light,
-          home: HomeScreen(settings: settings),
+          home: RootScreen(settings: settings),
         );
       },
     );
   }
+}
+
+/// Point d'entrée du radar en arrière-plan, lancé par RadarService.kt dans un
+/// moteur Flutter sans écran.
+@pragma('vm:entry-point')
+Future<void> radarMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  final engine = RadarEngine();
+  RadarEngine.bg.setMethodCallHandler((call) async {
+    if (call.method == 'wake') engine.wake();
+  });
+  await engine.run();
 }
