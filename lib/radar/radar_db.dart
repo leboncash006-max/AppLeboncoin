@@ -341,8 +341,8 @@ class RadarDb {
     await d.rawDelete('DELETE FROM logs WHERE id NOT IN (SELECT id FROM logs ORDER BY id DESC LIMIT 1000)');
   }
 
-  static Future<List<RadarLogRow>> logs() async =>
-      (await (await db).query('logs', orderBy: 'id DESC', limit: 500)).map(RadarLogRow.fromRow).toList();
+  static Future<List<RadarLogRow>> logs({int limit = 500}) async =>
+      (await (await db).query('logs', orderBy: 'id DESC', limit: limit)).map(RadarLogRow.fromRow).toList();
 
   static Future<void> clearLogs() async => (await db).delete('logs');
 

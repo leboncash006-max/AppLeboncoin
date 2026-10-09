@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../radar/radar_bridge.dart';
@@ -5,6 +7,7 @@ import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/radar_live_card.dart';
 import 'export_pdf.dart';
 import 'radar_all_screen.dart';
 import 'radar_log_screen.dart';
@@ -33,28 +36,43 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
   RadarState _state = RadarState.active;
   RadarPermissions? _perms;
   ({int seen, int analyzed, RadarAnalysis? best})? _today;
+  bool _foreground = true;
+  Timer? _refresh;
+
+  /// Fil et chiffres rafraîchis toutes les 5 s pendant que l'onglet est affiché.
+  void _syncRefresh() {
+    _refresh?.cancel();
+    if (widget.visible && _foreground) {
+      _refresh = Timer.periodic(const Duration(seconds: 5), (_) => _load());
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _load();
+    _syncRefresh();
   }
 
   @override
   void didUpdateWidget(RadarScreen old) {
     super.didUpdateWidget(old);
     if (widget.visible && !old.visible) _load();
+    if (widget.visible != old.visible) _syncRefresh();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _refresh?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
+    setState(() => _foreground = s == AppLifecycleState.resumed);
+    _syncRefresh();
     if (s == AppLifecycleState.resumed) _load();
   }
 
@@ -156,6 +174,8 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
               const SizedBox(height: 12),
             ],
             _statusCard(cs),
+            const SizedBox(height: 12),
+            RadarLiveCard(active: widget.visible && _foreground),
             const SizedBox(height: 12),
             _statsRow(cs),
             const SizedBox(height: 10),

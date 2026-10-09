@@ -63,6 +63,7 @@ class RadarEngine {
 
   Future<void> run() async {
     _running = true;
+    await _live(step: 'Démarrage du radar', clearAd: true);
     try {
       do {
         _wakeAgain = false;
@@ -72,9 +73,51 @@ class RadarEngine {
       await RadarDb.log('Erreur radar : $e');
     } finally {
       _running = false;
+      await _liveDone();
       await _progress('Radar : terminé');
       await bg.invokeMethod('done');
     }
+  }
+
+  // ------------------------------------------------------------ en direct
+
+  final Map<String, Object?> _liveState = {};
+
+  /// Ce que fait le radar à l'instant (lu par l'onglet Radar, chaque seconde).
+  Future<void> _live({
+    String? search,
+    String? step,
+    String? detail,
+    SearchAd? ad,
+    int? index,
+    int? total,
+    bool clearAd = false,
+  }) async {
+    if (search != null) _liveState['search'] = search;
+    if (step != null) _liveState['step'] = step;
+    _liveState['detail'] = detail;
+    if (clearAd) {
+      _liveState
+        ..remove('ad')
+        ..remove('index')
+        ..remove('total');
+    }
+    if (ad != null) {
+      _liveState['ad'] = {'title': ad.subject, 'price': ad.price, 'url': ad.url};
+    }
+    if (index != null) _liveState['index'] = index;
+    if (total != null) _liveState['total'] = total;
+    _liveState['running'] = true;
+    _liveState['ts'] = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await RadarDb.set('live', jsonEncode(_liveState));
+    } catch (_) {}
+  }
+
+  Future<void> _liveDone() async {
+    try {
+      await RadarDb.set('live', jsonEncode({'running': false, 'ts': DateTime.now().millisecondsSinceEpoch}));
+    } catch (_) {}
   }
 
   Future<void> _progress(String text) async {
@@ -161,10 +204,12 @@ class RadarEngine {
       final wait = RadarLimits.minGapSameSearch - DateTime.now().difference(s.lastLoadedAt!);
       if (!wait.isNegative) {
         await RadarDb.log('« ${s.name} » chargée il y a moins de 60 s : attente ${wait.inSeconds} s');
+        await _live(search: s.name, step: 'Pause de ${wait.inSeconds} s (60 s entre deux chargements)', clearAd: true);
         await Future.delayed(wait);
       }
     }
     await _progress('Radar : recherche « ${s.name} »…');
+    await _live(search: s.name, step: 'Chargement de la recherche Leboncoin', clearAd: true);
     await _waitLbcGap();
     await RadarDb.addPageLoad('search');
     final page = await loadSearchPage(_lbc, s.url);
@@ -234,14 +279,17 @@ class RadarEngine {
     await RadarDb.log('« ${s.name} » : ${ads.length} annonces, ${fresh.length} nouvelles, '
         '${candidates.length} à analyser');
 
-    for (final a in candidates) {
-      final go = await _analyze(s, a);
+    await _live(
+        step: '${ads.length} annonces lues, ${fresh.length} nouvelle(s), ${candidates.length} à analyser');
+    for (var i = 0; i < candidates.length; i++) {
+      final go = await _analyze(s, candidates[i], i + 1, candidates.length);
       if (!go) return false;
     }
     return true;
   }
 
   Future<void> _askVerification(String url) async {
+    await _live(step: '⛔ Leboncoin demande une vérification : radar arrêté');
     await RadarDb.set('state', 'verify');
     await RadarDb.set('verify_url', url);
     await RadarDb.log('⛔ Leboncoin demande une vérification : radar arrêté');
@@ -261,15 +309,18 @@ class RadarEngine {
   }
 
   /// Analyse en 2 temps. false si le radar doit s'arrêter.
-  Future<bool> _analyze(RadarSearch s, SearchAd a) async {
+  Future<bool> _analyze(RadarSearch s, SearchAd a, [int index = 1, int total = 1]) async {
     final settings = _settings!;
     await _progress('Radar : analyse de « ${a.subject} »…');
+    await _live(step: 'Préparation (catalogue MPB)', ad: a, index: index, total: total);
     final analyzer = await _analyzer();
 
     // a) pré-analyse sans ouvrir l'annonce : titre + attributs
     Analysis pre;
+    await _live(step: 'Pré-analyse (titre + état, sans ouvrir l\'annonce)');
     try {
-      pre = await analyzer.analyze(a.subject, '', a.price, attributes: a.attributesText);
+      pre = await analyzer.analyze(a.subject, '', a.price,
+          attributes: a.attributesText, onStep: (st) => _live(detail: st));
     } catch (e) {
       await RadarDb.log('  « ${a.subject} » : pré-analyse impossible ($e)');
       return true;
@@ -278,6 +329,7 @@ class RadarEngine {
     if (preMargin != null && preMargin < settings.minMargin - RadarLimits.preMarginSlack) {
       await _store(s, a, pre, 'pre', a.attributes, '');
       await RadarDb.log('  « ${a.subject} » : non rentable (${preMargin.toStringAsFixed(0)} €), page non ouverte');
+      await _live(step: 'Non rentable : ${preMargin.toStringAsFixed(0)} € (page non ouverte)');
       return true;
     }
 
@@ -288,6 +340,7 @@ class RadarEngine {
       await _maybeNotify(s, a, pre, provisional: true);
       return true;
     }
+    await _live(step: 'Ouverture de l\'annonce (marge provisoire ${preMargin?.toStringAsFixed(0) ?? '?'} €)');
     await _waitLbcGap();
     await RadarDb.addPageLoad('ad');
     final page = await loadAdPage(_lbc, a.url);
@@ -305,8 +358,9 @@ class RadarEngine {
     final ad = page.ad!;
     Analysis full;
     try {
+      await _live(step: 'Analyse complète (description, défauts, prix MPB réels)');
       full = await analyzer.analyze(ad.title, ad.description, ad.price ?? a.price,
-          attributes: ad.attributesText);
+          attributes: ad.attributesText, onStep: (st) => _live(detail: st));
     } catch (e) {
       await _store(s, a, pre, 'pre', a.attributes, '');
       await RadarDb.log('  « ${a.subject} » : analyse complète impossible ($e)');
@@ -314,6 +368,12 @@ class RadarEngine {
     }
     await _store(s, a, full, 'full', ad.attributes, ad.description, title: ad.title);
     await RadarDb.log('  « ${a.subject} » : marge ${full.margin?.toStringAsFixed(0) ?? '?'} €');
+    final fm = full.margin;
+    await _live(
+        step: fm == null
+            ? 'Résultat : marge non estimée'
+            : 'Résultat : ${fm >= 0 ? '+' : ''}${fm.toStringAsFixed(0)} €'
+                '${fm >= settings.minMargin ? ' · bonne affaire 🔔' : ''}');
     await _maybeNotify(s, a, full);
     return true;
   }

@@ -144,6 +144,13 @@ rebranche tout seul s'il est débranché, et un **chien de garde** (toutes les 1
 une notification **« Radar arrêté »** si l'écoute est coupée, l'accès retiré, l'arrière-plan
 restreint ou un démarrage refusé.
 
+### En direct
+En haut de l'onglet Radar, la carte **En direct** montre ce que fait le radar à la seconde :
+recherche en cours, annonce analysée (titre, prix, n/m), étape (chargement, pré-analyse,
+ouverture de l'annonce, analyse complète, résultat) et les dernières actions du journal.
+Sinon « En attente » avec l'heure du dernier passage ; « Interrompu ? » si le radar ne
+donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes les 5 s.
+
 ### Test global, toutes les annonces, PDF
 - **Test global** (Radar › Test) : autorisations, écoute des notifications, déclencheur,
   service en arrière-plan, chien de garde, chaque clé Gemini, catalogue MPB, identification
