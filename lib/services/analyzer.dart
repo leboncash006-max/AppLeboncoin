@@ -279,6 +279,23 @@ class Analyzer {
           }
         }
       }
+      // l'IA n'a rien retenu : un seul candidat porte exactement la même
+      // référence (a68, 1200d, 16-50…) → on le prend, marqué incertain.
+      for (final r in withCands.where((r) => r.mpbModel == null)) {
+        final codes = MpbCatalog.tokens('${r.item.nameGuess} ${r.item.searchQuery}')
+            .where((w) => w.contains(RegExp(r'\d')))
+            .toSet();
+        if (codes.isEmpty) continue;
+        final same = r.candidates.where((c) {
+          final t = MpbCatalog.tokens(c).where((w) => w.contains(RegExp(r'\d'))).toSet();
+          return t.isNotEmpty && t.every(codes.contains);
+        }).toList();
+        if (same.length == 1) {
+          r.mpbModel = same.first;
+          r.confident = false;
+          r.reason = 'Même référence que l\'annonce (choix automatique, à vérifier)';
+        }
+      }
     } catch (e) {
       final local = catalog != null ? LocalIdentifier(catalog!).identify(title, description, attributes) : null;
       if (local == null || local.items.isEmpty) rethrow;
@@ -419,7 +436,7 @@ class Analyzer {
 
 /// Recalcule un élément avec un autre modèle MPB (correction à la main) :
 /// prix de reprise réels pour [condition], marge prudente, nombre en vente.
-Future<void> repriceItem(ItemResult r, String model, String condition, MpbService mpb) async {
+Future<void> repriceItem(ItemResult r, String model, String condition, MpbService mpb, {double? coef}) async {
   r.mpbModel = model;
   r.confident = true;
   r.reason = 'Corrigé à la main';
@@ -432,8 +449,13 @@ Future<void> repriceItem(ItemResult r, String model, String condition, MpbServic
   try {
     r.resale = await mpb.resale(model);
   } catch (_) {}
-  r.modelId = await mpb.modelId(model);
-  if (r.modelId != null) r.purchasePrices = await mpb.purchasePrices(r.modelId!);
+  Object? priceError;
+  try {
+    r.modelId = await mpb.modelId(model);
+    if (r.modelId != null) r.purchasePrices = await mpb.purchasePrices(r.modelId!);
+  } catch (e) {
+    priceError = e;
+  }
   if (condition == 'parts') {
     r.buyback = 0;
     r.prudentBuyback = 0;
@@ -441,7 +463,18 @@ Future<void> repriceItem(ItemResult r, String model, String condition, MpbServic
     return;
   }
   final real = r.purchasePrices[condition];
-  if (real == null) throw Exception('Prix de reprise MPB indisponible pour $model');
+  if (real == null) {
+    // pas de prix de reprise en ligne (404 = MPB ne le propose pas) : estimation de secours
+    final why = priceError == null ? '' : ' (${priceError.toString().replaceFirst('Exception: ', '')})';
+    if (r.resale != null && coef != null) {
+      r.coef = coef;
+      r.buyback = r.resale!.median * coef;
+      r.prudentBuyback = null;
+      r.source = 'revente × coef';
+      return;
+    }
+    throw Exception('MPB ne donne pas de prix de reprise pour $model$why');
+  }
   r.buyback = real;
   r.prudentBuyback = r.purchasePrices[conditionBelow(condition)] ?? real;
   r.source = 'prix MPB réel';

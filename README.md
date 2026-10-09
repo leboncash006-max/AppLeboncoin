@@ -62,6 +62,12 @@ questions à l'IA sur l'annonce.
    nom exact → retenu directement, sans IA ; sinon les noms les plus proches sont
    proposés à Gemini. L'identifiant vient aussi du catalogue (un appel de moins).
    Le moteur de recherche MPB ne sert plus qu'en secours.
+   **Voir le catalogue** : Réglages › Catalogue MPB › « Voir le catalogue » liste tous les
+   noms exacts avec leur identifiant MPB (recherche, copie CSV, export PDF). C'est la
+   liste avec laquelle l'IA fait la correspondance. Si l'IA ne retient aucun candidat
+   alors qu'un seul porte exactement la même référence (A68, 1200D…), il est pris
+   automatiquement mais marqué « à vérifier ». Un élément non trouvé dans le catalogue
+   donne le verdict « doute » : jamais d'envoi automatique.
 6. **Prix de reprise réel** :
    - identifiant MPB du modèle : `GET /search-service/product/query/` avec
      `filter_query[object_type]=model` et le nom exact (marche aussi hors stock) ;
@@ -320,7 +326,7 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `lib/services/local_identifier.dart` : identification de secours sans IA
 - `lib/services/match_check.dart` : garde-fou marque + verdict IA oui/doute/non
 - `lib/screens/export_pdf.dart`, `assets/fonts/` : export PDF (police Roboto, Apache 2.0)
-- `lib/services/mpb_catalog.dart` : catalogue local des noms exacts MPB
+- `lib/services/mpb_catalog.dart`, `lib/screens/catalog_screen.dart` : catalogue local des noms exacts MPB et son écran
 - `lib/services/mpb_service.dart` : API JSON de MPB (suggestions, annonces en vente, identifiant et prix de reprise réels)
 - `lib/services/gemini_service.dart` : appels Gemini (JSON imposé pour l'analyse, chat avec recherche)
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse

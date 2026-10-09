@@ -130,7 +130,11 @@ class _ResultScreenState extends State<ResultScreen> {
     messenger.showSnackBar(const SnackBar(content: Text('Recalcul avec les prix MPB…')));
     final wrong = item.mpbModel;
     try {
-      await repriceItem(item, model, entry.analysis.condition, NativeMpbFetch().service());
+      final mpb = NativeMpbFetch().service();
+      final cat = await MpbCatalog.load();
+      if (cat != null) mpb.rememberIds(cat.ids); // identifiant pris dans le catalogue
+      await repriceItem(item, model, entry.analysis.condition, mpb,
+          coef: item.item.isLens ? settings.coefLens : settings.coefBody);
       entry.analysis.aiVerdict = null; // modèle changé : vérification à refaire
       if (wrong != null) await Corrections.add(wrong, model);
       entry.analysis.warnings.removeWhere((w) => wrong != null && w.contains(wrong));

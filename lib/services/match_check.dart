@@ -61,6 +61,10 @@ class MatchCheck {
       GeminiService gemini, Analysis a, String title, String attributes, String description) async {
     final identified = a.items.where((i) => i.mpbModel != null).toList();
     if (identified.isEmpty) return (verdict: 'non', reason: 'Aucun modèle identifié');
+    final unknown = a.items.where((i) => i.mpbModel == null).map((i) => i.item.nameGuess).toList();
+    if (unknown.isNotEmpty) {
+      return (verdict: 'doute', reason: 'Non trouvé dans le catalogue MPB : ${unknown.join(', ')}');
+    }
     final missing = missingBrands(a, '$title\n$attributes\n$description');
     if (missing.isNotEmpty) {
       return (verdict: 'non', reason: 'Marque absente de l\'annonce pour : ${missing.join(', ')}');

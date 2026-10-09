@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../services/mpb_catalog.dart';
 import '../services/settings.dart';
+import 'catalog_screen.dart';
 import 'radar_log_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -97,6 +98,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               '${shortDate(_catalog!.date)}. Rafraîchi automatiquement chaque semaine.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
               const SizedBox(height: 10),
+              FilledButton.tonalIcon(
+                onPressed: _catalog == null
+                    ? null
+                    : () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CatalogScreen())),
+                icon: const Icon(Icons.list_alt),
+                label: const Text('Voir le catalogue (modèles et identifiants)'),
+              ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _catalog == null ? null : _refreshCatalog,
                 icon: const Icon(Icons.refresh),
