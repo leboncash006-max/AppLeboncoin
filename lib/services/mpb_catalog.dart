@@ -103,11 +103,17 @@ class MpbCatalog {
     // « α68 », « alpha 68 », « alpha-68 » → a68 (référence Sony)
     t = t.replaceAllMapped(RegExp(r'(?:α|\balpha)[\s-]?(\d{1,4}[a-z]{0,3})\b'), (m) => 'a${m[1]}');
     t = t.replaceAll('α', 'a');
-    return t
+    final out = t
         .split(RegExp(r'[^a-z0-9.]+'))
         .map((w) => w.replaceAll(RegExp(r'^\.+|\.+$'), ''))
         .where((w) => w.isNotEmpty)
         .toList();
+    // Sony monture A : « ILCA-68 » est l'A68 (ILCA-77M2 = A77 II…)
+    for (var i = 0; i + 1 < out.length; i++) {
+      final m = RegExp(r'^(\d{2})(m\d)?$').firstMatch(out[i + 1]);
+      if (out[i] == 'ilca' && m != null && !out.contains('a${m[1]}')) out.add('a${m[1]}');
+    }
+    return out;
   }
 
   static bool _hasDigit(String w) => w.contains(RegExp(r'\d'));
