@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../services/ad_extras.dart';
+import '../services/v3_models.dart';
 import '../services/analyzer.dart';
 import '../services/history.dart';
 import '../services/leboncoin_reader.dart';
@@ -102,6 +104,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
   // ------------------------------------------------------- lecture Leboncoin
 
+  AdExtras? _extras; // photos, lieu, livraison de l'annonce lue
+
   Future<void> _read(Uri uri) async {
     final web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -122,6 +126,9 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         final candidate = adDataFromJs(uri, j);
         if (candidate.isComplete) {
           ad = candidate;
+          try {
+            _extras = adExtrasFromJs(decodeJsResult(await web.runJavaScriptReturningResult(adExtrasScript)));
+          } catch (_) {}
           break;
         }
         if (j['blocked'] == true && !extended) {
@@ -165,7 +172,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     try {
       final catalog = await _catalog;
       final a = await Analyzer(widget.settings, mpb: _mpb, catalog: catalog).analyze(title, desc, price,
-          attributes: attrsText, onStep: (st) {
+          attributes: attrsText, extras: url.isEmpty ? null : _extras, onStep: (st) {
         if (!mounted) return;
         setState(() {
           _detail = st;
@@ -189,6 +196,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         description: desc,
         attributes: attrs,
         analysis: a,
+        extras: url.isEmpty ? null : _extras,
       );
       await HistoryStore.upsert(entry);
       setState(() => _step = 4);

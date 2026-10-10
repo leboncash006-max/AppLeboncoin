@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../radar/native_browser.dart';
 import '../radar/radar_db.dart';
 import '../services/history.dart';
+import 'auto_rules.dart';
 import 'message_settings.dart';
 import 'message_store.dart';
 import 'message_writer.dart';
@@ -35,14 +36,8 @@ class AutoSender {
   /// sûres, jamais contactée, et verdict IA « oui ».
   static Future<String?> refusal(HistoryEntry e, String listId, double minMargin, MessageSettings s,
       {MessageWriter? writer}) async {
-    final a = e.analysis;
-    if (a.price == null) return 'prix inconnu';
-    final m = a.margin;
-    if (m == null || m < minMargin) return 'marge sous le seuil';
-    if (a.condition == 'parts') return 'pour pièces';
-    if (a.warnings.isNotEmpty) return 'alerte : ${a.warnings.first}';
-    if (a.defects.isNotEmpty) return 'défauts signalés';
-    if (a.items.any((i) => !i.confident || !i.realPrice)) return 'version incertaine ou prix non réel';
+    final block = autoBlockReason(e.analysis, minMargin);
+    if (block != null) return block;
     if (await MessageStore.adAlreadyContacted(listId)) return 'annonce déjà contactée';
     final v = await (writer ?? MessageWriter()).verify(e);
     if (v.verdict != 'oui') return 'verdict IA « ${v.verdict} » : ${v.reason}';

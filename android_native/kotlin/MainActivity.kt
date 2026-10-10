@@ -29,7 +29,7 @@ class MainActivity : FlutterActivity() {
 
     /** Ouverture depuis une notification du radar (analyse ou vérification). */
     private fun captureLaunch(i: Intent?): Boolean {
-        val keys = listOf("open_analysis", "radar_verify", "radar_setup", "contact", "confirm_send", "messages")
+        val keys = listOf("open_analysis", "radar_verify", "radar_setup", "contact", "confirm_send", "messages", "reply")
         val key = keys.firstOrNull { i?.getStringExtra(it) != null } ?: return false
         launch = mapOf(key to i!!.getStringExtra(key)!!)
         keys.forEach { i.removeExtra(it) }

@@ -193,6 +193,83 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
 - `lib/radar/` : base de données, moteur, navigateur sans affichage, pont Android.
 - `lib/screens/radar_*.dart` : écrans du radar.
 
+## v3 : du « bon plan » au « bénéfice réel »
+
+### Analyse des photos
+- Les photos sont lues dans la page de l'annonce (`__NEXT_DATA__` : `images.urls_large`, sinon
+  `urls`, sinon `thumb_url`). L'appli en garde 6 au plus, les réduit à environ 1024 px en JPEG et les
+  envoie à Gemini (`lib/services/photo_check.dart`).
+- Gemini renvoie :
+  - le modèle visible ;
+  - la cohérence avec l'annonce (oui / non / doute) ;
+  - l'état visuel (barème MPB) ;
+  - les défauts, avec leur gravité et la photo concernée ;
+  - les accessoires visibles.
+- **Prix MPB** : il est calculé sur l'état le plus bas entre l'état annoncé et l'état visuel.
+- **Photos incohérentes** : si l'IA répond « non », c'est un verdict de correspondance « non » ;
+  si elle répond « doute », c'est « doute ».
+- **Défaut majeur** (écran cassé, lentille rayée, champignon, buée) : alerte rouge, et jamais
+  d'envoi automatique.
+- **Écran résultat** : carrousel des photos avec les défauts marqués, et badge « Photos vérifiées ».
+- **Radar** : les photos ne sont analysées qu'après la pré-analyse, donc seulement pour les
+  annonces prometteuses.
+
+### Marge nette
+- **Réglages › Marge nette** :
+  - ville ou code postal (position trouvée via la Base Adresse Nationale) ;
+  - coût au km (0,15 € par défaut) ;
+  - distance max pour une remise en main propre (30 km par défaut) ;
+  - frais Leboncoin en pourcentage et en fixe (0 par défaut, avec un lien vers l'aide Leboncoin) ;
+  - frais d'envoi estimés.
+- **Lieu et livraison** : lus dans l'annonce (`location`, attributs `shippable` et `shipping_type`).
+- **Calcul** : marge nette = reprise MPB − prix − frais Leboncoin − (livraison, ou trajet
+  aller-retour × coût/km). La distance est estimée par la route (vol d'oiseau × 1,25). Les frais
+  Leboncoin ne comptent que pour un achat en ligne. Si la livraison est possible et que la main
+  propre revient moins cher à moins de la distance max, c'est la main propre qui compte.
+- **Trop loin** : si la remise est en main propre seulement et au-delà de la distance max,
+  l'alerte « trop loin » s'affiche et rien n'est envoyé automatiquement.
+- **Utilisation** : le Radar, les notifications, le prix max et l'envoi automatique utilisent la
+  marge **nette**. Le détail du calcul est sur l'écran résultat.
+
+### Onglet Stock
+- **Fiche** : « Je l'ai acheté » crée une fiche avec l'annonce, le prix payé, les frais réels
+  (préremplis avec les coûts calculés), la date, les éléments, l'état constaté à réception et la
+  reprise estimée.
+- **Statuts** : Acheté → Reçu → Estimation MPB faite → Expédié à MPB → Payé par MPB (montant
+  réellement payé), ou « Revendu ailleurs ».
+- **Tableau de bord** : bénéfice total, bénéfice du mois, nombre d'achats, bénéfice moyen, meilleur
+  coup, et précision (montant payé par MPB comparé à l'estimation, en € et en %).
+- **Export** : CSV, séparateur « ; », à partager.
+- **Stockage** : sqflite (table `deals`, base v5).
+
+### Réponses des vendeurs
+- **Détection** : l'écouteur de notifications repère aussi les messages Leboncoin (catégorie,
+  canal ou style « conversation »). Ces notifications ne sont jamais retirées.
+- **Rattachement** : chaque message est rattaché à une annonce contactée par les mots de son titre.
+  À défaut, il est rattaché à la seule annonce contactée dans les 7 derniers jours.
+- **Notification « <vendeur> a répondu »** : elle ouvre la messagerie dans le navigateur connecté,
+  sur la conversation de l'annonce.
+- **Propositions** : « Proposer des réponses » lit les derniers messages. Gemini propose alors
+  2 ou 3 réponses dans le ton réglé : accepter, contre-offre (jamais au-dessus du prix max en marge
+  nette) ou poser une question.
+- **Envoi** : je choisis une réponse et je peux la modifier. L'appli l'écrit et l'envoie
+  **après ma confirmation**. Il n'y a jamais de réponse automatique.
+- **Statuts** : contacté → réponse reçue → accord → acheté. « Acheté » crée la fiche du Stock.
+
+### Tests
+- Fichier : `test/v3_logic_test.dart`.
+- Ce qui est testé : marge nette (livraison, main propre, trop loin, prix max), état le plus bas,
+  blocage d'un défaut majeur, tableau de bord du Stock, export CSV et rattachement des réponses.
+- Lancés en CI avant le build.
+
+### Consommation Gemini (estimation)
+| Étape | Appels | Photos |
+| --- | --- | --- |
+| Pré-analyse Radar | 1 à 2 | non |
+| Analyse complète | 3 à 4 (lecture, choix, vérification) | + 1 appel avec 6 photos max |
+| Message vendeur | 1 | non |
+| Propositions de réponse | 1 | non |
+
 ## Messages aux vendeurs
 
 Onglet **Messages** (3e menu) :

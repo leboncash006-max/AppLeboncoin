@@ -48,6 +48,15 @@ class RadarNotificationListener : NotificationListenerService() {
         }
     }
 
+    /** Notification de messagerie Leboncoin (catégorie, canal ou style « conversation »). */
+    private fun isMessage(n: Notification, channel: String): Boolean {
+        if (n.category == Notification.CATEGORY_MESSAGE) return true
+        val c = channel.lowercase()
+        if (c.contains("messag") || c.contains("chat") || c.contains("conversation")) return true
+        val ex = n.extras ?: return false
+        return ex.containsKey(Notification.EXTRA_MESSAGES)
+    }
+
     override fun onListenerConnected() {
         instance = this
         RadarEvents.setLong(this, "listener_connected", System.currentTimeMillis())
@@ -73,7 +82,20 @@ class RadarNotificationListener : NotificationListenerService() {
         }
         RadarEvents.rememberPackage(this, pkg)
         RadarEvents.addRecent(this, title, text, channel, pkg)
-        if (!RadarEvents.isTrigger(this, text, channel)) return // pas le déclencheur : ignorée
+        if (!RadarEvents.isTrigger(this, text, channel)) {
+            // message d'un vendeur ? (réponses aux annonces contactées) : jamais retirée
+            if (isMessage(notif, channel)) {
+                val ex = notif.extras
+                val sub = listOfNotNull(
+                    ex?.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
+                    ex?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+                    if (Build.VERSION.SDK_INT >= 28) ex?.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString() else null
+                ).filter { it.isNotBlank() && it != text }.joinToString(" · ")
+                RadarEvents.add(this, "reply", title, if (sub.isEmpty()) text else "$text · $sub", pkg)
+                RadarService.start(this)
+            }
+            return // pas le déclencheur : ignorée
+        }
 
         RadarEvents.add(this, "notif", title, text, pkg)
         if (!RadarEvents.isEnabled(this)) return

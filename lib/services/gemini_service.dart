@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -44,8 +45,9 @@ class GeminiService {
 
   /// [temperature] : 0 pour l'analyse (réponses stables), plus haut pour les
   /// messages aux vendeurs (jamais deux textes identiques).
+  /// [images] : photos JPEG envoyées en inline_data (analyse des photos).
   Future<Map<String, dynamic>> generateJson(String prompt, Map<String, dynamic> schema,
-      {double temperature = 0}) async {
+      {double temperature = 0, List<Uint8List> images = const []}) async {
     final modelOrder = [
       if (_workingModel != null) _workingModel!,
       ...models.where((m) => m != _workingModel),
@@ -54,7 +56,8 @@ class GeminiService {
       var quotaHits = 0;
       while (_keyIndex < keys.length) {
         try {
-          final res = await _call(keys[_keyIndex], model, prompt, schema, temperature: temperature);
+          final res =
+              await _call(keys[_keyIndex], model, prompt, schema, temperature: temperature, images: images);
           _workingModel = model;
           return res;
         } on _KeyError {
@@ -76,7 +79,7 @@ class GeminiService {
   }
 
   Future<Map<String, dynamic>> _call(String key, String model, String prompt,
-      Map<String, dynamic> schema, {double temperature = 0}) async {
+      Map<String, dynamic> schema, {double temperature = 0, List<Uint8List> images = const []}) async {
     final uri = Uri.https('generativelanguage.googleapis.com',
         '/v1beta/models/$model:generateContent');
     final body = jsonEncode({
@@ -84,6 +87,9 @@ class GeminiService {
         {
           'role': 'user',
           'parts': [
+            for (final img in images) {
+              'inline_data': {'mime_type': 'image/jpeg', 'data': base64Encode(img)}
+            },
             {'text': prompt}
           ]
         }
@@ -101,7 +107,7 @@ class GeminiService {
           .post(uri,
               headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
               body: body)
-          .timeout(const Duration(seconds: 40));
+          .timeout(Duration(seconds: images.isEmpty ? 40 : 90));
       // limite par minute : on patiente un peu et on réessaie la même clé
       if (r.statusCode == 429 && attempt < 1) {
         await Future.delayed(Duration(seconds: 4 * (attempt + 1)));

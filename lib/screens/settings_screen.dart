@@ -4,6 +4,7 @@ import '../main.dart';
 import '../services/mpb_catalog.dart';
 import '../services/settings.dart';
 import 'catalog_screen.dart';
+import 'net_settings_screen.dart';
 import 'radar_log_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -82,6 +83,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: _setDark,
               secondary: const Icon(Icons.dark_mode_outlined),
               title: const Text('Thème sombre', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          AppCard(
+            padding: EdgeInsets.zero,
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => NetSettingsScreen(settings: widget.settings))),
+            child: ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Marge nette', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(widget.settings.net.home.isEmpty
+                  ? 'Ville, trajet, frais Leboncoin, livraison'
+                  : '${widget.settings.net.home} · ${widget.settings.net.kmCost} €/km · max ${widget.settings.net.maxKm.toStringAsFixed(0)} km'),
+              trailing: const Icon(Icons.chevron_right),
             ),
           ),
           const SizedBox(height: 16),

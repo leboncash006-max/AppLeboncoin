@@ -4,6 +4,9 @@ import 'corrections.dart';
 import 'gemini_service.dart';
 import 'local_identifier.dart';
 import 'match_check.dart';
+import 'net_margin.dart';
+import 'photo_check.dart';
+import 'v3_models.dart';
 import 'mpb_catalog.dart';
 import 'mpb_service.dart';
 import 'settings.dart';
@@ -170,7 +173,7 @@ class Analyzer {
   }
 
   Future<Analysis> analyze(String title, String description, double? price,
-      {String attributes = '', Progress? onStep, bool verify = true}) async {
+      {String attributes = '', Progress? onStep, bool verify = true, AdExtras? extras, bool photos = true}) async {
     final ad = [
       'Titre : $title',
       'Prix : ${price ?? "?"} €',
@@ -370,10 +373,31 @@ class Analyzer {
 
     // 4. Prix : reprise réelle MPB pour l'état annoncé ; en secours seulement,
     //    vraie estimation enregistrée ou revente MPB en état Bon × coefficient.
+    // 3 quater. photos de l'annonce (seulement si quelque chose est identifié)
+    PhotoCheck? photoCheck;
+    if (photos && extras != null && extras.images.isNotEmpty && results.any((r) => r.mpbModel != null)) {
+      onStep?.call('Analyse des photos (${extras.images.length > PhotoChecker.maxPhotos ? PhotoChecker.maxPhotos : extras.images.length})…');
+      try {
+        photoCheck = await PhotoChecker(gemini).check(
+            extras.images,
+            title,
+            description,
+            Analysis(items: results, price: price, defects: defects, conditionHint: '', shutterCount: null, warnings: []));
+      } catch (e) {
+        warnings.add('Analyse des photos impossible : ${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    }
+
     onStep?.call('Calcul des prix de reprise…');
-    final condition = conditionFromAd('$attributes\n$title');
-    final forParts = condition == 'parts';
+    final adCondition = conditionFromAd('$attributes\n$title');
+    final forParts = adCondition == 'parts';
+    // prix MPB retenu = état le PLUS BAS entre l'annonce et les photos
+    final condition = forParts ? 'parts' : lowestCondition(adCondition, photoCheck?.visualCondition);
     final mainCond = forParts ? 'good' : condition;
+    if (!forParts && condition != adCondition) {
+      warnings.add('📷 Les photos montrent un état « ${mpbConditionLabels[condition]} » (annonce : '
+          '« ${mpbConditionLabels[adCondition]} ») : prix MPB calculé en « ${mpbConditionLabels[condition]} ».');
+    }
     final prudentCond = conditionBelow(mainCond);
     for (final r in results) {
       final m = r.mpbModel;
@@ -424,6 +448,23 @@ class Analyzer {
     }
 
     if (searchError != null) warnings.insert(0, 'Recherche MPB impossible : $searchError');
+    if (photoCheck != null) {
+      if (photoCheck.hasMajorDefect) {
+        final majors = photoCheck.defects.where((d) => d.major || majorDefectWords.hasMatch(d.type)).map((d) => d.type);
+        warnings.insert(0, '⛔ Défaut majeur visible sur les photos : ${majors.join(', ')}');
+      }
+      if (photoCheck.coherent == 'non') {
+        warnings.insert(0, '⛔ Photos : ce n\'est pas le modèle identifié. ${photoCheck.reason}');
+      } else if (photoCheck.coherent == 'doute') {
+        warnings.add('⚠️ Photos : correspondance incertaine. ${photoCheck.reason}');
+      }
+    }
+    // coûts réels : frais Leboncoin, livraison ou trajet (marge NETTE)
+    final costs = price == null ? null : computeCosts(price, extras, settings.net);
+    if (costs != null && costs.tooFar) {
+      warnings.add('🚗 Trop loin : ${costs.distanceKm!.toStringAsFixed(0)} km en main propre seulement '
+          '(max ${settings.net.maxKm.toStringAsFixed(0)} km).');
+    }
     if (price == null) warnings.add('Prix de l\'annonce inconnu.');
     // garde-fou : reprise très supérieure au prix → identification probablement fausse
     final buyback = results.fold(0.0, (t, r) => t + (r.buyback ?? 0));
@@ -453,11 +494,20 @@ class Analyzer {
       condition: condition,
       prudentCondition: forParts ? 'parts' : prudentCond,
       engine: engine,
+      photos: photoCheck,
+      costs: costs,
     );
     // 5. vérification de correspondance (garde-fou marque + verdict IA)
     if (verify && an.items.any((i) => i.mpbModel != null)) {
       onStep?.call('Vérification de la correspondance (IA)…');
-      final v = await MatchCheck.run(gemini, an, title, attributes, description);
+      var v = await MatchCheck.run(gemini, an, title, attributes, description);
+      // les photos peuvent contredire l'annonce : « non » ou « doute » l'emporte
+      final pc = photoCheck?.coherent;
+      if (pc == 'non' && v.verdict != 'non') {
+        v = (verdict: 'non', reason: 'Photos : ${photoCheck!.reason}');
+      } else if (pc == 'doute' && v.verdict == 'oui') {
+        v = (verdict: 'doute', reason: 'Photos : ${photoCheck!.reason}');
+      }
       an.aiVerdict = v.verdict;
       an.aiReason = v.reason;
       if (v.verdict != 'oui') {

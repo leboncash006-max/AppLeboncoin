@@ -1,10 +1,12 @@
 import '../models.dart';
 import 'history.dart';
+import 'net_margin.dart';
 
-/// Prix d'achat maximum pour garder la marge voulue (arrondi aux 5 € inférieurs).
+/// Prix d'achat maximum pour garder la marge NETTE voulue (arrondi aux 5 € inférieurs).
 double? maxBuyPrice(Analysis a, double minMargin, {bool prudent = false}) {
   if (!a.hasBuyback) return null;
-  final v = (prudent ? a.prudentTotal : a.totalBuyback) - minMargin;
+  // marge NETTE : frais Leboncoin, livraison ou trajet déduits
+  final v = maxPriceFor(prudent ? a.prudentTotal : a.totalBuyback, minMargin, a.costs);
   if (v <= 0) return 0;
   return (v / 5).floorToDouble() * 5;
 }

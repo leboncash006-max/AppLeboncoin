@@ -9,6 +9,9 @@ class MsgStatus {
   static const test = 'test'; // test à blanc : tout sauf le clic final
   static const failed = 'failed';
   static const cancelled = 'cancelled';
+  static const replied = 'replied'; // le vendeur a répondu
+  static const agreed = 'agreed'; // accord trouvé
+  static const bought = 'bought'; // acheté (fiche dans le Stock)
 
   static String label(String s) => switch (s) {
         queued => 'En file',
@@ -18,6 +21,9 @@ class MsgStatus {
         test => 'Test à blanc',
         failed => 'Échec',
         cancelled => 'Annulé',
+        replied => 'Réponse reçue',
+        agreed => 'Accord',
+        bought => 'Acheté',
         _ => s,
       };
 }
@@ -37,6 +43,8 @@ class SellerMessage {
   final DateTime createdAt;
   final DateTime? notBefore;
   final DateTime? sentAt;
+  final String reply; // dernier message du vendeur (notification)
+  final DateTime? repliedAt;
 
   SellerMessage.fromRow(Map<String, Object?> r)
       : id = r['id'] as int,
@@ -52,7 +60,9 @@ class SellerMessage {
         auto = (r['auto'] as int? ?? 0) == 1,
         createdAt = DateTime.fromMillisecondsSinceEpoch((r['created_at'] as int?) ?? 0),
         notBefore = r['not_before'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['not_before'] as int),
-        sentAt = r['sent_at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['sent_at'] as int);
+        sentAt = r['sent_at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['sent_at'] as int),
+        reply = (r['reply'] as String?) ?? '',
+        repliedAt = r['replied_at'] == null ? null : DateTime.fromMillisecondsSinceEpoch(r['replied_at'] as int);
 }
 
 /// Accès à la table des messages (base du radar, partagée avec l'arrière-plan).
@@ -119,7 +129,7 @@ class MessageStore {
     if (ids.isEmpty) return {};
     final r = await (await RadarDb.db).query('messages',
         columns: ['list_id'],
-        where: "status IN ('sent','sending','queued','confirm') AND list_id IN (${List.filled(ids.length, '?').join(',')})",
+        where: "status IN ('sent','sending','queued','confirm','replied','agreed','bought') AND list_id IN (${List.filled(ids.length, '?').join(',')})",
         whereArgs: ids);
     return r.map((e) => e['list_id'] as String).toSet();
   }
@@ -148,6 +158,37 @@ class MessageStore {
     final r = await (await RadarDb.db).rawQuery("SELECT MAX(sent_at) AS t FROM messages WHERE status = 'sent'");
     final t = r.first['t'] as int?;
     return t == null ? null : DateTime.fromMillisecondsSinceEpoch(t);
+  }
+
+  /// Statut du dernier message envoyé pour une annonce (accord, acheté…).
+  static Future<void> setStatusForAd(String listId, String status) async {
+    final m = await forAd(listId);
+    if (m == null || m.status == MsgStatus.cancelled || m.status == MsgStatus.failed) return;
+    await update(m.id, status: status);
+  }
+
+  /// Réponse du vendeur reçue (notification Leboncoin).
+  static Future<void> recordReply(int id, String text) async {
+    final m = await byId(id);
+    await (await RadarDb.db).update(
+        'messages',
+        {
+          'reply': text,
+          'replied_at': _now(),
+          // on ne recule pas un accord ou un achat
+          if (m != null && m.status != MsgStatus.agreed && m.status != MsgStatus.bought) 'status': MsgStatus.replied,
+        },
+        where: 'id = ?',
+        whereArgs: [id]);
+  }
+
+  /// Messages envoyés pouvant recevoir une réponse (30 derniers jours).
+  static Future<List<SellerMessage>> awaitingReply() async {
+    final since = _now() - 30 * 24 * 3600 * 1000;
+    return (await (await RadarDb.db).query('messages',
+            where: "status IN ('sent','replied','agreed') AND sent_at >= ?", whereArgs: [since], orderBy: 'sent_at DESC'))
+        .map(SellerMessage.fromRow)
+        .toList();
   }
 
   /// Messages en file dont l'heure est venue (le plus ancien d'abord).

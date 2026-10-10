@@ -1,3 +1,5 @@
+import 'services/v3_models.dart';
+
 /// Un élément vendu dans l'annonce, tel que Gemini l'a compris.
 class ExtractedItem {
   final String type; // boitier | objectif | flash | autre
@@ -138,6 +140,12 @@ class Analysis {
   /// (protège aussi les analyses enregistrées avant cette règle).
   String? get verdict => aiVerdict == 'oui' && items.any((i) => i.mpbModel == null) ? 'doute' : aiVerdict;
 
+  /// Analyse des photos par l'IA (null = pas faite).
+  PhotoCheck? photos;
+
+  /// Coûts réels (frais, livraison ou trajet) : la marge affichée est NETTE.
+  CostBreakdown? costs;
+
   /// Moteur d'identification : « ia » ou « local » (secours si l'IA échoue).
   String engine;
 
@@ -153,6 +161,8 @@ class Analysis {
     this.aiVerdict,
     this.aiReason = '',
     this.engine = 'ia',
+    this.photos,
+    this.costs,
   });
 
   double get totalBuyback =>
@@ -163,13 +173,18 @@ class Analysis {
 
   /// Marge inconnue si le prix manque ou si rien n'a pu être chiffré
   /// (sinon « 0 € de reprise » afficherait une fausse perte).
-  double? get margin => price == null || !hasBuyback ? null : totalBuyback - price!;
+  double? get grossMargin => price == null || !hasBuyback ? null : totalBuyback - price!;
+
+  /// Marge NETTE : reprise − prix − frais Leboncoin − livraison ou trajet.
+  /// C'est elle qu'utilisent le Radar, les notifications et l'envoi automatique.
+  double? get margin => grossMargin == null ? null : grossMargin! - (costs?.total ?? 0);
 
   /// Reprise si MPB classe le matériel un cran en dessous.
   double get prudentTotal =>
       items.fold(0.0, (s, i) => s + (i.prudentBuyback ?? i.buyback ?? 0));
 
-  double? get prudentMargin => price == null || !hasBuyback ? null : prudentTotal - price!;
+  double? get prudentMargin =>
+      price == null || !hasBuyback ? null : prudentTotal - price! - (costs?.total ?? 0);
 
   Map<String, dynamic> toJson() => {
         'items': items.map((i) => i.toJson()).toList(),
@@ -183,6 +198,8 @@ class Analysis {
         'aiVerdict': aiVerdict,
         'aiReason': aiReason,
         'engine': engine,
+        if (photos != null) 'photos': photos!.toJson(),
+        if (costs != null) 'costs': costs!.toJson(),
       };
 
   factory Analysis.fromJson(Map<String, dynamic> j) => Analysis(
@@ -199,5 +216,7 @@ class Analysis {
         aiVerdict: j['aiVerdict'] as String?,
         aiReason: (j['aiReason'] ?? '').toString(),
         engine: (j['engine'] ?? 'ia').toString(),
+        photos: j['photos'] == null ? null : PhotoCheck.fromJson(Map<String, dynamic>.from(j['photos'] as Map)),
+        costs: j['costs'] == null ? null : CostBreakdown.fromJson(Map<String, dynamic>.from(j['costs'] as Map)),
       );
 }

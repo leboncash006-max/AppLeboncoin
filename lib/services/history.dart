@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models.dart';
+import 'v3_models.dart';
 
 /// Un message de la conversation « Poser une question ».
 class ChatMessage {
@@ -55,6 +56,9 @@ class HistoryEntry {
   final Analysis analysis;
   final List<ChatMessage> chat;
 
+  /// Photos, lieu et livraison lus dans la page (null en saisie manuelle).
+  final AdExtras? extras;
+
   HistoryEntry({
     required this.id,
     required this.date,
@@ -65,6 +69,7 @@ class HistoryEntry {
     required this.attributes,
     required this.analysis,
     List<ChatMessage>? chat,
+    this.extras,
   }) : chat = chat ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -77,6 +82,7 @@ class HistoryEntry {
         'attributes': attributes,
         'analysis': analysis.toJson(),
         'chat': chat.map((m) => m.toJson()).toList(),
+        if (extras != null) 'extras': extras!.toJson(),
       };
 
   factory HistoryEntry.fromJson(Map<String, dynamic> j) => HistoryEntry(
@@ -92,6 +98,7 @@ class HistoryEntry {
         chat: ((j['chat'] as List?) ?? [])
             .map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
+        extras: j['extras'] == null ? null : AdExtras.fromJson(Map<String, dynamic>.from(j['extras'] as Map)),
       );
 
   String get attributesText =>

@@ -12,6 +12,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import 'lbc_login_screen.dart';
 import 'message_settings_screen.dart';
+import 'reply_screen.dart';
 import 'result_screen.dart';
 import 'send_screen.dart';
 
@@ -142,6 +143,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
               decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(12)),
               child: SelectableText(m.text.isEmpty ? '(message pas encore rédigé)' : m.text),
             ),
+            if (m.reply.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Réponse du vendeur${m.repliedAt == null ? '' : ' (${shortDate(m.repliedAt!)})'} :',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              SelectableText(m.reply),
+            ],
             const SizedBox(height: 14),
             Wrap(spacing: 8, runSpacing: 8, children: [
               FilledButton.tonalIcon(
@@ -153,7 +161,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     onPressed: () => Navigator.pop(ctx, 'copy'),
                     icon: const Icon(Icons.copy, size: 18),
                     label: const Text('Copier')),
-              if (m.status != MsgStatus.sent && m.status != MsgStatus.sending)
+              if (const [MsgStatus.sent, MsgStatus.replied, MsgStatus.agreed].contains(m.status))
+                FilledButton.icon(
+                    onPressed: () => Navigator.pop(ctx, 'reply'),
+                    icon: const Icon(Icons.reply, size: 18),
+                    label: const Text('Répondre')),
+              if (!const [MsgStatus.sent, MsgStatus.sending, MsgStatus.replied, MsgStatus.agreed, MsgStatus.bought]
+                  .contains(m.status))
                 FilledButton.icon(
                     onPressed: () => Navigator.pop(ctx, 'retry'),
                     icon: const Icon(Icons.send_outlined, size: 18),
@@ -180,6 +194,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
         await MessageStore.update(m.id, status: MsgStatus.cancelled, error: 'annulé à la main');
       case 'sent':
         await MessageStore.update(m.id, status: MsgStatus.sent, error: '', sentNow: true);
+      case 'reply':
+        await Navigator.push(
+            context, MaterialPageRoute(builder: (_) => ReplyScreen(messageId: m.id, settings: widget.settings)));
       case 'retry':
         final e = await _entryFor(m);
         if (!mounted) return;
@@ -195,6 +212,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   static Color _color(String status, ColorScheme cs) => switch (status) {
         MsgStatus.sent => AppColors.good,
+        MsgStatus.replied => AppColors.warn,
+        MsgStatus.agreed => AppColors.good,
+        MsgStatus.bought => AppColors.good,
         MsgStatus.test => AppColors.good,
         MsgStatus.failed => AppColors.bad,
         MsgStatus.confirm => AppColors.warn,

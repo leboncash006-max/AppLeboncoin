@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import '../radar/radar_bridge.dart';
 import '../radar/radar_db.dart';
 import '../services/settings.dart';
+import 'deals_screen.dart';
 import 'home_screen.dart';
 import 'messages_screen.dart';
+import 'reply_screen.dart';
 import 'radar_screen.dart';
 import 'radar_setup_screen.dart';
 import 'radar_verify_screen.dart';
@@ -25,6 +27,7 @@ class _RootScreenState extends State<RootScreen> {
   int _tab = 0;
   bool _radarBuilt = false; // l'onglet Radar n'est construit qu'au premier affichage
   bool _msgBuilt = false;
+  bool _stockBuilt = false;
 
   @override
   void initState() {
@@ -63,7 +66,7 @@ class _RootScreenState extends State<RootScreen> {
     if (l == null || !mounted) return;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
-    final toMessages = l['messages'] != null || l['confirm_send'] != null;
+    final toMessages = l['messages'] != null || l['confirm_send'] != null || l['reply'] != null;
     setState(() {
       _tab = toMessages ? 2 : 1;
       if (toMessages) {
@@ -73,6 +76,11 @@ class _RootScreenState extends State<RootScreen> {
       }
     });
     if (l['messages'] != null) return;
+    final reply = int.tryParse(l['reply'] ?? '');
+    if (reply != null) {
+      await nav.push(MaterialPageRoute(builder: (_) => ReplyScreen(messageId: reply, settings: widget.settings)));
+      return;
+    }
     final contact = l['contact'] ?? l['confirm_send'];
     if (contact != null) {
       // « Contacter » / « À confirmer » : écran d'envoi du message
@@ -109,6 +117,10 @@ class _RootScreenState extends State<RootScreen> {
           MessagesScreen(settings: widget.settings, visible: _tab == 2)
         else
           const SizedBox.shrink(),
+        if (_stockBuilt || _tab == 3)
+          DealsScreen(settings: widget.settings, visible: _tab == 3, embedded: true)
+        else
+          const SizedBox.shrink(),
       ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
@@ -116,6 +128,7 @@ class _RootScreenState extends State<RootScreen> {
           _tab = i;
           if (i == 1) _radarBuilt = true;
           if (i == 2) _msgBuilt = true;
+          if (i == 3) _stockBuilt = true;
         }),
         height: 66,
         destinations: const [
@@ -123,6 +136,8 @@ class _RootScreenState extends State<RootScreen> {
           NavigationDestination(icon: Icon(Icons.radar_outlined), selectedIcon: Icon(Icons.radar), label: 'Radar'),
           NavigationDestination(
               icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Messages'),
+          NavigationDestination(
+              icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory_2), label: 'Stock'),
         ],
       ),
     );

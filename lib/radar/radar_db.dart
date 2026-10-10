@@ -147,13 +147,17 @@ enum RadarState { active, paused, verify, off }
 const _dealsTable = '''CREATE TABLE deals(
   id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT, title TEXT, url TEXT,
   bought_price REAL, bought_at INTEGER, estimated REAL, sold_price REAL, sold_at INTEGER,
-  sold_where TEXT, note TEXT, entry TEXT)''';
+  sold_where TEXT, note TEXT, entry TEXT, status TEXT, fees REAL, received_condition TEXT,
+  items TEXT, mpb_quote REAL, list_id TEXT)''';
+
+/// Colonnes ajoutées en v5 (onglet Stock).
+const _dealsV5 = ['status TEXT', 'fees REAL', 'received_condition TEXT', 'items TEXT', 'mpb_quote REAL', 'list_id TEXT'];
 
 /// Messages aux vendeurs (envois, file d'attente, test à blanc).
 const messagesTable = '''CREATE TABLE messages(
   id INTEGER PRIMARY KEY AUTOINCREMENT, list_id TEXT, url TEXT, title TEXT, seller TEXT,
   offer REAL, text TEXT, status TEXT, step TEXT, error TEXT, auto INTEGER,
-  created_at INTEGER, not_before INTEGER, sent_at INTEGER)''';
+  created_at INTEGER, not_before INTEGER, sent_at INTEGER, reply TEXT, replied_at INTEGER)''';
 
 /// Stockage sqflite du radar (partagé par l'appli et le service en arrière-plan).
 class RadarDb {
@@ -162,7 +166,7 @@ class RadarDb {
   static Future<Database> get db async {
     if (_db != null) return _db!;
     final path = p.join(await getDatabasesPath(), 'radar.db');
-    _db = await openDatabase(path, version: 4, onUpgrade: (d, from, to) async {
+    _db = await openDatabase(path, version: 5, onUpgrade: (d, from, to) async {
       if (from < 2) {
         for (final c in ['title TEXT', 'price REAL', 'url TEXT', 'published_at INTEGER', 'reason TEXT']) {
           await d.execute('ALTER TABLE seen_ads ADD COLUMN $c');
@@ -170,6 +174,15 @@ class RadarDb {
       }
       if (from < 3) await d.execute(_dealsTable);
       if (from < 4) await d.execute(messagesTable);
+      if (from >= 3 && from < 5) {
+        for (final c in _dealsV5) {
+          await d.execute('ALTER TABLE deals ADD COLUMN $c');
+        }
+      }
+      if (from >= 4 && from < 5) {
+        await d.execute('ALTER TABLE messages ADD COLUMN reply TEXT');
+        await d.execute('ALTER TABLE messages ADD COLUMN replied_at INTEGER');
+      }
     }, onCreate: (d, _) async {
       await d.execute(_dealsTable);
       await d.execute(messagesTable);

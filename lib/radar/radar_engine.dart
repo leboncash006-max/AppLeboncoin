@@ -2,9 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../messages/reply_tools.dart';
 import '../messages/auto_sender.dart';
 import '../messages/message_store.dart';
 import '../models.dart';
+import '../services/ad_extras.dart';
+import '../services/v3_models.dart';
 import '../services/analyzer.dart';
 import '../services/history.dart';
 import '../services/mpb_catalog.dart';
@@ -194,6 +197,21 @@ class RadarEngine {
             await RadarDb.log('Notif « $title » : recherche désactivée');
           }
         }
+      } else if (kind == 'reply') {
+        // notification de message Leboncoin : réponse d'un vendeur contacté ?
+        final title = (ev['title'] ?? '').toString();
+        final text = (ev['text'] ?? '').toString();
+        final m = await handleReplyNotification(title, text);
+        try {
+          await bg.invokeMethod('notifyInfo', {
+            'id': 4900 + (m?.id ?? 0) % 90,
+            'title': m == null ? '💬 $title' : '💬 ${title.isEmpty ? 'Le vendeur' : title} a répondu',
+            'text': m == null ? text : '« ${m.title} » : $text',
+            'key': m == null ? 'messages' : 'reply',
+            'value': m == null ? '1' : '${m.id}',
+            'high': m != null,
+          });
+        } catch (_) {}
       } else if (kind == 'test') {
         // test global : prouve que le service en arrière-plan démarre, sans rien charger
         await RadarDb.log('Test global : service en arrière-plan OK');
@@ -360,7 +378,7 @@ class RadarEngine {
     await _live(step: 'Pré-analyse (titre + état, sans ouvrir l\'annonce)');
     try {
       pre = await analyzer.analyze(a.subject, '', a.price,
-          attributes: a.attributesText, onStep: (st) => _live(detail: st), verify: false);
+          attributes: a.attributesText, onStep: (st) => _live(detail: st), verify: false, photos: false);
     } catch (e) {
       await RadarDb.log('  « ${a.subject} » : pré-analyse impossible ($e)');
       return true;
@@ -396,17 +414,23 @@ class RadarEngine {
       return true;
     }
     final ad = page.ad!;
+    // photos, lieu et livraison (analyse photo seulement ici : annonce prometteuse)
+    AdExtras? extras;
+    try {
+      final j = await _lbc.evalJson(adExtrasScript);
+      if (j != null) extras = adExtrasFromJs(j);
+    } catch (_) {}
     Analysis full;
     try {
       await _live(step: 'Analyse complète (description, défauts, prix MPB réels)');
       full = await analyzer.analyze(ad.title, ad.description, ad.price ?? a.price,
-          attributes: ad.attributesText, onStep: (st) => _live(detail: st));
+          attributes: ad.attributesText, extras: extras, onStep: (st) => _live(detail: st));
     } catch (e) {
       await _store(s, a, pre, 'pre', a.attributes, '');
       await RadarDb.log('  « ${a.subject} » : analyse complète impossible ($e)');
       return true;
     }
-    final stored = await _store(s, a, full, 'full', ad.attributes, ad.description, title: ad.title);
+    final stored = await _store(s, a, full, 'full', ad.attributes, ad.description, title: ad.title, extras: extras);
     await RadarDb.log('  « ${a.subject} » : marge ${full.margin?.toStringAsFixed(0) ?? '?'} €');
     final fm = full.margin;
     await _live(
@@ -428,7 +452,7 @@ class RadarEngine {
   }
 
   Future<HistoryEntry> _store(RadarSearch s, SearchAd a, Analysis an, String stage, Map<String, String> attrs,
-      String description, {String? title}) async {
+      String description, {String? title, AdExtras? extras}) async {
     final entry = HistoryEntry(
       id: 'radar_${a.listId}',
       date: DateTime.now(),
@@ -438,6 +462,7 @@ class RadarEngine {
       description: description,
       attributes: attrs,
       analysis: an,
+      extras: extras,
     );
     final m = an.margin;
     await RadarDb.saveAnalysis(

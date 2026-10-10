@@ -15,6 +15,7 @@ import '../services/offer.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/v3_cards.dart';
 import 'chat_screen.dart';
 import '../messages/message_store.dart';
 import 'send_screen.dart';
@@ -107,11 +108,13 @@ class _ResultScreenState extends State<ResultScreen> {
       ),
     );
     if (price == null) return;
-    await DealsStore.addFromEntry(entry, price);
+    await DealsStore.addFromEntry(entry, price, fees: entry.analysis.costs?.total ?? 0);
+    await MessageStore.setStatusForAd(listIdOf(entry), MsgStatus.bought);
     await _loadDeal();
+    _loadMsg();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: const Text('Ajouté à « Mes affaires »'),
+      content: const Text('Ajouté au Stock'),
       action: SnackBarAction(
           label: 'Voir',
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DealsScreen(settings: settings)))),
@@ -180,6 +183,14 @@ class _ResultScreenState extends State<ResultScreen> {
           if (maxBuyPrice(a, settings.minMargin) != null) ...[
             const SizedBox(height: 10),
             FadeSlideIn(delay: d(), child: _OfferCard(entry: entry, minMargin: settings.minMargin)),
+          ],
+          if (a.costs != null && a.grossMargin != null) ...[
+            const SizedBox(height: 10),
+            FadeSlideIn(delay: d(), child: NetMarginCard(analysis: a, extras: entry.extras)),
+          ],
+          if (a.photos != null && a.photos!.images.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            FadeSlideIn(delay: d(), child: PhotosCard(check: a.photos!)),
           ],
           for (final w in others) ...[
             const SizedBox(height: 10),
