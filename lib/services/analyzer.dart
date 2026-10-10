@@ -323,6 +323,21 @@ class Analyzer {
           }
         }
       }
+      // 3 quinquies. le nom officiel deviné existe-t-il chez MPB, même hors catalogue ?
+      for (final r in results.where((r) => r.mpbModel == null)) {
+        final name = r.item.nameGuess.trim();
+        if (name.isEmpty || _part.hasMatch(name)) continue;
+        try {
+          final id = await mpb.modelId(name);
+          if (id != null) {
+            r.mpbModel = name;
+            r.modelId = id;
+            r.confident = true;
+            r.reason = 'Nom exact trouvé chez MPB (hors catalogue)';
+            if (!r.candidates.contains(name)) r.candidates.add(name);
+          }
+        } catch (_) {}
+      }
       // l'IA n'a rien retenu : un seul candidat porte exactement la même
       // référence (a68, 1200d, 16-50…) → on le prend, marqué incertain.
       for (final r in results.where((r) => r.mpbModel == null && r.candidates.isNotEmpty)) {

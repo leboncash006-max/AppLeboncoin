@@ -167,6 +167,21 @@ class MpbService {
       id = rows.isEmpty ? null : int.tryParse(_first(rows.first, 'model_id') ?? '');
       if (id != null) break;
     }
+    // absent de la liste des modèles (ex. Sony Alpha SLT-A68) : identifiant lu
+    // sur un produit en vente ou déjà vendu portant exactement ce nom
+    if (id == null) {
+      final data = await _get('/search-service/product/query/', {
+        'filter_query[model_name]': '"$modelName"',
+        'filter_query[object_type]': 'product',
+        'field_list': ['model_id', 'model_name'],
+        'rows': '5',
+      });
+      for (final r in (data['results'] as List?) ?? []) {
+        if (_first(r, 'model_name') != modelName) continue;
+        id = int.tryParse(_first(r, 'model_id') ?? '');
+        if (id != null) break;
+      }
+    }
     _idCache[modelName] = id;
     return id;
   }

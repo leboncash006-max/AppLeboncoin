@@ -851,6 +851,13 @@ class _CorrectSheetState extends State<_CorrectSheet> {
                     child: Text('Catalogue MPB pas encore téléchargé (lance une analyse d\'abord).',
                         textAlign: TextAlign.center, style: TextStyle(color: cs.onSurfaceVariant)))
                 : ListView(children: [
+                    if (_q.text.trim().length > 3 && !_results.contains(_q.text.trim()))
+                      ListTile(
+                        leading: const Icon(Icons.edit_note),
+                        title: Text('Utiliser « ${_q.text.trim()} »'),
+                        subtitle: const Text('Nom exact MPB absent du catalogue (vérifié chez MPB)'),
+                        onTap: () => Navigator.pop(context, _q.text.trim()),
+                      ),
                     for (final r in _results)
                       ListTile(
                         title: Text(r),
