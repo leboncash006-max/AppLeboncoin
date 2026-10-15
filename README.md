@@ -67,7 +67,7 @@ questions à l'IA sur l'annonce.
    liste avec laquelle l'IA fait la correspondance. Si l'IA ne retient aucun candidat
    alors qu'un seul porte exactement la même référence (A68, 1200D…), il est pris
    automatiquement mais marqué « à vérifier ». Un élément non trouvé dans le catalogue
-   donne le verdict « doute » : jamais d'envoi automatique.
+   donne le verdict « doute » : jamais d'achat automatique.
 6. **Prix de reprise réel** :
    - identifiant MPB du modèle : `GET /search-service/product/query/` avec
      `filter_query[object_type]=model` et le nom exact (marche aussi hors stock) ;
@@ -209,7 +209,7 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
 - **Photos incohérentes** : si l'IA répond « non », c'est un verdict de correspondance « non » ;
   si elle répond « doute », c'est « doute ».
 - **Défaut majeur** (écran cassé, lentille rayée, champignon, buée) : alerte rouge, et jamais
-  d'envoi automatique.
+  d'achat automatique.
 - **Écran résultat** : carrousel des photos avec les défauts marqués, et badge « Photos vérifiées ».
 - **Radar** : les photos ne sont analysées qu'après la pré-analyse, donc seulement pour les
   annonces prometteuses.
@@ -228,7 +228,7 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
   propre revient moins cher à moins de la distance max, c'est la main propre qui compte.
 - **Trop loin** : si la remise est en main propre seulement et au-delà de la distance max,
   l'alerte « trop loin » s'affiche et rien n'est envoyé automatiquement.
-- **Utilisation** : le Radar, les notifications, le prix max et l'envoi automatique utilisent la
+- **Utilisation** : le Radar, les notifications, le prix max et l'achat automatique utilisent la
   marge **nette**. Le détail du calcul est sur l'écran résultat.
 
 ### Onglet Stock
@@ -242,20 +242,6 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
 - **Export** : CSV, séparateur « ; », à partager.
 - **Stockage** : sqflite (table `deals`, base v5).
 
-### Réponses des vendeurs
-- **Détection** : l'écouteur de notifications repère aussi les messages Leboncoin (catégorie,
-  canal ou style « conversation »). Ces notifications ne sont jamais retirées.
-- **Rattachement** : chaque message est rattaché à une annonce contactée par les mots de son titre.
-  À défaut, il est rattaché à la seule annonce contactée dans les 7 derniers jours.
-- **Notification « <vendeur> a répondu »** : elle ouvre la messagerie dans le navigateur connecté,
-  sur la conversation de l'annonce.
-- **Propositions** : « Proposer des réponses » lit les derniers messages. Gemini propose alors
-  2 ou 3 réponses dans le ton réglé : accepter, contre-offre (jamais au-dessus du prix max en marge
-  nette) ou poser une question.
-- **Envoi** : je choisis une réponse et je peux la modifier. L'appli l'écrit et l'envoie
-  **après ma confirmation**. Il n'y a jamais de réponse automatique.
-- **Statuts** : contacté → réponse reçue → accord → acheté. « Acheté » crée la fiche du Stock.
-
 ### Tests
 - Fichier : `test/v3_logic_test.dart`.
 - Ce qui est testé : marge nette (livraison, main propre, trop loin, prix max), état le plus bas,
@@ -267,85 +253,60 @@ donne plus de nouvelles depuis 3 min. Le fil des annonces se met à jour toutes 
 | --- | --- | --- |
 | Pré-analyse Radar | 1 à 2 | non |
 | Analyse complète | 3 à 4 (lecture, choix, vérification) | + 1 appel avec 6 photos max |
-| Message vendeur | 1 | non |
-| Propositions de réponse | 1 | non |
+| Achat auto (dernier contrôle) | 1 | non |
+| Objet hors photo | +1 (recherche web) | non |
 
-## Messages aux vendeurs
+## Achat automatique (onglet « Achat »)
 
-Onglet **Messages** (3e menu) :
+L'onglet **Achat** est le seul menu de l'achat auto. Il contient :
+- l'état de la connexion à Leboncoin ;
+- l'interrupteur « Achat automatique » ;
+- le **mode test**, activé par défaut : l'appli fait tout sauf le clic final « Payer » ;
+- les plafonds : marge nette minimale, prix max d'un achat livré, budget par jour, achats par jour ;
+- l'historique des tentatives.
 
-- **Compte Leboncoin** : « Se connecter à Leboncoin » ouvre la page de connexion dans une
-  WebView visible. Tu tapes toi-même tes identifiants ; l'appli ne lit ni n'enregistre jamais
-  le mot de passe. Seuls les cookies de session sont gardés (comme dans un navigateur).
-  L'indicateur affiche **Connecté / Non connecté**.
-- **Envoi auto** : l'interrupteur général de l'envoi automatique. La carte affiche aussi le mode,
-  le test à blanc, le compteur du jour et le bandeau « suspendu » avec le bouton **Réactiver**.
-- **Liste des envois** : statut (en file, à confirmer, envoyé, test à blanc, échec, annulé),
-  annonce, prix proposé, texte et date. Touche un envoi pour voir l'annonce, copier le texte,
-  reprendre, annuler, ou le marquer comme envoyé.
+L'appli paie **seule, avec le solde Leboncoin uniquement**, jamais par carte. Elle n'achète que si
+**tout** est réuni :
+- modèle identifié par l'IA, prix de reprise MPB réel et vérification de correspondance « oui » ;
+- au moins 2 photos cohérentes, un état visuel connu, aucun défaut majeur et au plus 1 défaut mineur ;
+- aucune alerte, pas « pour pièces », livraison possible et 2 éléments au plus ;
+- une marge nette d'achat en ligne (frais et livraison compris) au moins égale au minimum, et au
+  moins égale à la moitié du minimum même un état en dessous ;
+- une reprise au moins 25 % au-dessus du coût total ;
+- un dernier contrôle par l'IA qui répond « go » avec une certitude d'au moins 95 % ;
+- les plafonds respectés, et jamais deux fois la même annonce.
 
-**Message vendeur** (écran résultat ou notification) ouvre l'envoi en plein écran. La page
-Leboncoin reste visible. La progression suit les étapes « Ouverture de l'annonce → Contact →
-Message écrit → Envoyé ». Le bouton **STOP** arrête l'envoi à tout moment. L'annonce passe en
-« Contacté » dans le fil Radar et sur l'écran résultat.
+Si quelque chose d'imprévu arrive, l'achat s'arrête et l'achat auto est **suspendu** jusqu'à ce
+que tu le réactives. C'est le cas pour une vérification anti-robot, une page inconnue, un solde
+insuffisant, un bouton de paiement inactif (par exemple un point relais à choisir), une demande de
+carte ou une validation bancaire. Un paiement n'est jamais recommencé, pour éviter tout double
+achat. Chaque achat réel crée une fiche dans le **Stock**.
 
-### Réglages (icône ⚙ de l'onglet)
+⚠️ Les achats sont définitifs. L'automate n'a été testé que sur des pages imitées, pas sur la vraie
+page de paiement Leboncoin. **Commence par le mode test** et vérifie l'historique avant de le couper.
+L'automatisation peut aussi être contraire aux conditions d'utilisation de Leboncoin.
 
-- **Mode** : *toujours confirmer* (par défaut : l'appli écrit le message, tu appuies sur
-  « Envoyer »), *envoi direct*, ou *automatique pour les bonnes affaires*.
-- **Test à blanc** (activé par défaut) : l'appli fait tout sauf le clic final sur
-  « Envoyer ». **Commence par là** et vérifie dans la liste que les essais finissent en
-  « Test à blanc ».
-- Ton (poli, amical, direct), vouvoiement ou tutoiement, proposition de prix (le prix conseillé
-  quand il est sous le prix demandé), consignes perso. Gemini rédige chaque message à neuf, donc
-  jamais deux fois le même texte. Si Gemini échoue, un modèle de texte tiré au hasard sert de repli.
+## Autres catégories
 
-### Mode automatique
+En dehors de la photo, l'appli reconnaît aussi les autres objets de valeur : consoles, téléphones,
+tablettes, ordinateurs, montres, drones, audio. Pour ces objets, l'IA cherche sur le web le prix de
+revente entre particuliers et la meilleure reprise immédiate (Back Market, Recommerce, Easy Cash…).
+La marge utilise la reprise, sinon 80 % de la revente. Ces prix sont affichés comme
+« Estimation IA (web) » et ne déclenchent **jamais** d'achat automatique.
 
-Le radar envoie seul **uniquement si tout est réuni** :
+## Baisses de prix
 
-- marge au-dessus du seuil ;
-- verdict IA « oui » (garde-fou marque + vérification de correspondance, faite pendant l'analyse ; sans « oui », jamais d'envoi auto) ;
-- aucune alerte (pièces, défaut, version incertaine) ;
-- annonce jamais contactée ;
-- prix connu.
-
-Sinon, tu reçois une notification « À confirmer ». Après l'envoi : « Message envoyé à … (proposé
-120 €) ».
-
-### Comment l'envoi fonctionne
-
-Les boutons sont trouvés par leur texte (« Envoyer un message », « Contacter », « Message »).
-Une liste noire exclut tout bouton d'offre, de réservation, d'achat ou de paiement.
-
-Le texte est écrit avec le setter natif, suivi des événements input et change. Le message n'est
-marqué envoyé qu'après avoir été vu dans la conversation. Si une étape échoue, l'envoi s'arrête,
-la page reste affichée, et le journal note l'étape, les boutons vus et un extrait de la page.
-
-**Vérification anti-robot ou page de connexion** : l'envoi s'arrête aussitôt et tu reçois une
-notification « Action requise ». L'appli ne la contourne jamais : c'est à toi de la faire.
-
-### Garde-fous (codés en dur, seul le plafond est réglable)
-
-- 10 messages automatiques par jour au plus (réglable jusqu'à 20) et 3 par heure ;
-- au moins 3 min entre deux envois, plus 20 à 90 s au hasard, et 1 à 3 s entre les étapes ;
-- aucun envoi automatique entre 22 h et 8 h : les messages sont mis en file pour 8 h ;
-- un seul contact par annonce, et un seul par vendeur sur 24 h ;
-- 2 échecs de suite ou une vérification anti-robot suspendent l'envoi auto jusqu'à ce que tu le
-  réactives.
-
-⚠️ Les conditions d'utilisation de Leboncoin peuvent interdire l'automatisation de la messagerie,
-et des envois en série peuvent faire suspendre le compte. Garde des plafonds bas et préfère le
-mode « toujours confirmer ».
+À chaque passage, le Radar compare le prix des annonces déjà analysées avec le prix affiché dans la
+page de recherche. Si le prix a baissé, la marge est recalculée sans appel à l'IA. Si l'annonce
+devient rentable, tu reçois une notification « 📉 Baisse de prix », et l'achat auto est tenté si
+tout est sûr. Une annonce qui n'avait eu que la pré-analyse et devient prometteuse passe en analyse
+complète.
 
 ## Acheter et revendre
 
 - **Prix d'achat max** (écran résultat) : reprise MPB − ta marge mini, arrondi aux 5 € ; plus
   la version prudente (état juste en dessous) et le prix à proposer au vendeur.
-- **Message vendeur** : message prêt (« toujours disponible ? Je vous propose X € ») copié,
-  puis l'annonce s'ouvre ; il suffit de le coller dans la messagerie Leboncoin. Aussi via le
-  bouton **Contacter** des notifications de bonnes affaires.
-- **Mes affaires** (icône carton, onglet Analyse ; ou menu Radar) : « Je l'ai acheté » sur un
+- **Stock** (onglet Stock) : « Je l'ai acheté » sur un
   résultat, puis « Marquer comme vendu » (prix, MPB / Leboncoin / eBay…). Bénéfice réalisé,
   bénéfice du mois, stock et sa reprise estimée, bénéfice moyen.
 - **Pas le bon modèle ?** (carte d'un élément) : choisis le bon nom dans le catalogue MPB ;
@@ -409,7 +370,8 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `lib/services/analyzer.dart` : enchaînement complet de l'analyse
 - `lib/services/history.dart` : historique local (50 analyses + conversations)
 - `lib/screens/` : accueil, analyse, résultat, questions, réglages
-- `lib/messages/`, `lib/screens/messages_screen.dart`, `send_screen.dart` : messages aux vendeurs (rédaction, automate, garde-fous)
+- `lib/buy/`, `lib/screens/buy_screen.dart` : achat automatique avec le solde (règles strictes, automate, plafonds)
+- `lib/services/market_estimate.dart` : estimation de prix hors photo (IA + web)
 - `lib/theme.dart`, `lib/widgets/common.dart` : thème et composants
 - `assets/icon/` : icône de l'appli
 - `tool/patch_manifest.py` : ajouts au manifeste Android

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../messages/message_store.dart';
 import '../radar/radar_db.dart';
+import '../services/deals.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -40,7 +40,7 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
     _sort = await RadarDb.feedSort();
     final analyses = await RadarDb.analyses(searchId: _search, sort: _sort);
     final seen = await RadarDb.seenAds(searchId: _search);
-    final contacted = await MessageStore.contacted(analyses.map((a) => a.listId).toList());
+    final contacted = await DealsStore.boughtListIds();
     if (!mounted) return;
     setState(() {
       _searches = searches;
@@ -235,7 +235,7 @@ class _AnalysisTile extends StatelessWidget {
               Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               const SizedBox(height: 3),
-              Text('${contacted ? '✉️ Contacté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)} · $stage',
+              Text('${contacted ? '🛒 Acheté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)} · $stage',
                   maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
             ]),

@@ -2,9 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-import '../messages/reply_tools.dart';
-import '../messages/auto_sender.dart';
-import '../messages/message_store.dart';
+import '../buy/buyer.dart';
 import '../models.dart';
 import '../services/ad_extras.dart';
 import '../services/v3_models.dart';
@@ -12,6 +10,7 @@ import '../services/analyzer.dart';
 import '../services/history.dart';
 import '../services/mpb_catalog.dart';
 import '../services/mpb_service.dart';
+import '../services/net_margin.dart';
 import '../services/settings.dart';
 import 'native_browser.dart';
 import 'radar_db.dart';
@@ -73,7 +72,6 @@ class RadarEngine {
       do {
         _wakeAgain = false;
         await _processEvents();
-        await _sendQueue();
       } while (_wakeAgain);
     } catch (e) {
       await RadarDb.log('Erreur radar : $e');
@@ -82,26 +80,6 @@ class RadarEngine {
       await _liveDone();
       await _progress('Radar : terminé');
       await bg.invokeMethod('done');
-    }
-  }
-
-  /// Messages en file : envoyés quand les garde-fous le permettent. Si le
-  /// prochain est dû dans moins de 6 min, on l'attend (service toujours actif).
-  Future<void> _sendQueue() async {
-    try {
-      for (var round = 0; round < 5; round++) {
-        await AutoSender.processQueue(onLive: (t) => _live(step: t, clearAd: true));
-        final next = await MessageStore.nextQueued();
-        if (next == null) return;
-        final wait = next.difference(DateTime.now());
-        if (wait > const Duration(minutes: 6)) return;
-        if (!wait.isNegative) {
-          await _live(step: 'Prochain message dans ${wait.inSeconds} s (garde-fous)', clearAd: true);
-          await Future.delayed(wait);
-        }
-      }
-    } catch (e) {
-      await RadarDb.log('✉️ File des messages : $e');
     }
   }
 
@@ -197,21 +175,6 @@ class RadarEngine {
             await RadarDb.log('Notif « $title » : recherche désactivée');
           }
         }
-      } else if (kind == 'reply') {
-        // notification de message Leboncoin : réponse d'un vendeur contacté ?
-        final title = (ev['title'] ?? '').toString();
-        final text = (ev['text'] ?? '').toString();
-        final m = await handleReplyNotification(title, text);
-        try {
-          await bg.invokeMethod('notifyInfo', {
-            'id': 4900 + (m?.id ?? 0) % 90,
-            'title': m == null ? '💬 $title' : '💬 ${title.isEmpty ? 'Le vendeur' : title} a répondu',
-            'text': m == null ? text : '« ${m.title} » : $text',
-            'key': m == null ? 'messages' : 'reply',
-            'value': m == null ? '1' : '${m.id}',
-            'high': m != null,
-          });
-        } catch (_) {}
       } else if (kind == 'test') {
         // test global : prouve que le service en arrière-plan démarre, sans rien charger
         await RadarDb.log('Test global : service en arrière-plan OK');
@@ -288,6 +251,7 @@ class RadarEngine {
     // ---- sélection des nouvelles annonces (point de reprise)
     final ads = page.ads;
     final seen = await RadarDb.seenAmong(ads.map((a) => a.listId).toList());
+    await _checkPriceDrops(s, ads.where((a) => seen.contains(a.listId)).toList());
     final byDate = [...ads]..sort((a, b) => (b.date ?? DateTime(2000)).compareTo(a.date ?? DateTime(2000)));
     final unseen = byDate.where((a) => !seen.contains(a.listId)).toList();
     final List<SearchAd> fresh;
@@ -439,16 +403,84 @@ class RadarEngine {
             : 'Résultat : ${fm >= 0 ? '+' : ''}${fm.toStringAsFixed(0)} €'
                 '${fm >= settings.minMargin ? ' · bonne affaire 🔔' : ''}');
     await _maybeNotify(s, a, full);
-    // message au vendeur : envoi auto (toutes conditions) ou notification « À confirmer »
+    // achat automatique : seulement si TOUT est sûr (règles strictes + IA ≥ 95 %)
     if (fm != null && fm >= settings.minMargin) {
       try {
-        await _live(step: 'Message au vendeur : vérification des conditions');
-        await AutoSender.consider(stored, a.listId, a.url, settings.minMargin);
+        await AutoBuyer.consider(stored, a.listId, settings, onLive: (t) => _live(step: t));
       } catch (e) {
-        await RadarDb.log('✉️ Préparation du message impossible : $e');
+        await RadarDb.log('🛒 Achat auto impossible : $e');
       }
     }
     return true;
+  }
+
+  /// Baisses de prix des annonces déjà analysées (visibles dans la page de
+  /// recherche) : la marge est recalculée sans IA avec le nouveau prix. Si
+  /// l'annonce devient rentable : notification « 📉 » (et achat auto si sûr).
+  Future<void> _checkPriceDrops(RadarSearch s, List<SearchAd> ads) async {
+    final settings = _settings!;
+    for (final a in ads) {
+      final newPrice = a.price;
+      if (newPrice == null) continue;
+      final ra = await RadarDb.analysis(a.listId);
+      final oldPrice = ra?.price;
+      if (ra == null || oldPrice == null || newPrice > oldPrice - 1) continue;
+      final e = ra.entry;
+      final oldMargin = e.analysis.margin;
+      final na = Analysis.fromJson(e.analysis.toJson()..['price'] = newPrice);
+      na.costs = computeCosts(newPrice, e.extras, settings.net);
+      final ne = HistoryEntry(
+        id: e.id,
+        date: DateTime.now(),
+        url: e.url,
+        title: e.title,
+        adPrice: newPrice,
+        description: e.description,
+        attributes: e.attributes,
+        analysis: na,
+        chat: e.chat,
+        extras: e.extras,
+      );
+      final m = na.margin;
+      await RadarDb.saveAnalysis(
+        listId: a.listId,
+        search: s,
+        title: ra.title,
+        price: newPrice,
+        url: ra.url,
+        publishedAt: ra.publishedAt,
+        stage: ra.stage,
+        margin: m,
+        profitable: m != null && m >= settings.minMargin,
+        entry: ne,
+      );
+      await RadarDb.log('📉 « ${ra.title} » : ${oldPrice.toStringAsFixed(0)} € → ${newPrice.toStringAsFixed(0)} € '
+          '(marge ${m?.toStringAsFixed(0) ?? '?'} €)');
+      final becameGood = m != null && m >= settings.minMargin && (oldMargin == null || oldMargin < settings.minMargin);
+      if (ra.stage != 'full' && m != null && m >= settings.minMargin - RadarLimits.preMarginSlack) {
+        // pré-analyse seulement : maintenant prometteuse → analyse complète
+        await _analyze(s, a);
+        continue;
+      }
+      if (!becameGood) continue;
+      try {
+        await bg.invokeMethod('notifyDeal', {
+          'id': a.listId.hashCode & 0x7fffffff,
+          'title': '📉 Baisse de prix · +${m.toStringAsFixed(0)} € · ${ra.title}',
+          'text': '${oldPrice.toStringAsFixed(0)} € → ${newPrice.toStringAsFixed(0)} € · ${s.name}',
+          'adUrl': a.url,
+          'analysisId': a.listId,
+          'high': true,
+        });
+      } catch (_) {}
+      if (ra.stage == 'full') {
+        try {
+          await AutoBuyer.consider(ne, a.listId, settings, onLive: (t) => _live(step: t));
+        } catch (e) {
+          await RadarDb.log('🛒 Achat auto impossible : $e');
+        }
+      }
+    }
   }
 
   Future<HistoryEntry> _store(RadarSearch s, SearchAd a, Analysis an, String stage, Map<String, String> attrs,

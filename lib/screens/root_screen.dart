@@ -6,14 +6,13 @@ import '../radar/radar_db.dart';
 import '../services/settings.dart';
 import 'deals_screen.dart';
 import 'home_screen.dart';
-import 'messages_screen.dart';
-import 'reply_screen.dart';
+import 'buy_screen.dart';
 import 'radar_screen.dart';
 import 'radar_setup_screen.dart';
 import 'radar_verify_screen.dart';
 import 'result_screen.dart';
 
-/// Onglets « Analyse », « Radar » et « Messages ». Gère aussi l'ouverture depuis une
+/// Onglets « Analyse », « Radar », « Achat » et « Stock ». Gère aussi l'ouverture depuis une
 /// notification du radar (bonne affaire ou vérification Leboncoin).
 class RootScreen extends StatefulWidget {
   final Settings settings;
@@ -66,29 +65,17 @@ class _RootScreenState extends State<RootScreen> {
     if (l == null || !mounted) return;
     final nav = Navigator.of(context);
     nav.popUntil((r) => r.isFirst);
-    final toMessages = l['messages'] != null || l['confirm_send'] != null || l['reply'] != null;
+    final toBuy = l['buy'] != null;
     setState(() {
-      _tab = toMessages ? 2 : 1;
-      if (toMessages) {
+      _tab = toBuy ? 2 : 1;
+      if (toBuy) {
         _msgBuilt = true;
       } else {
         _radarBuilt = true;
       }
     });
-    if (l['messages'] != null) return;
-    final reply = int.tryParse(l['reply'] ?? '');
-    if (reply != null) {
-      await nav.push(MaterialPageRoute(builder: (_) => ReplyScreen(messageId: reply, settings: widget.settings)));
-      return;
-    }
-    final contact = l['contact'] ?? l['confirm_send'];
-    if (contact != null) {
-      // « Contacter » / « À confirmer » : écran d'envoi du message
-      final a = await RadarDb.analysis(contact);
-      if (a != null && mounted) await contactSeller(context, a.entry, widget.settings.minMargin);
-      return;
-    }
-    final id = l['open_analysis'];
+    if (toBuy) return;
+    final id = l['open_analysis'] ?? l['contact'];
     final verify = l['radar_verify'];
     if (id != null) {
       final a = await RadarDb.analysis(id);
@@ -114,7 +101,7 @@ class _RootScreenState extends State<RootScreen> {
         else
           const SizedBox.shrink(),
         if (_msgBuilt || _tab == 2)
-          MessagesScreen(settings: widget.settings, visible: _tab == 2)
+          BuyScreen(settings: widget.settings, visible: _tab == 2)
         else
           const SizedBox.shrink(),
         if (_stockBuilt || _tab == 3)
@@ -135,7 +122,7 @@ class _RootScreenState extends State<RootScreen> {
           NavigationDestination(icon: Icon(Icons.bolt_outlined), selectedIcon: Icon(Icons.bolt), label: 'Analyse'),
           NavigationDestination(icon: Icon(Icons.radar_outlined), selectedIcon: Icon(Icons.radar), label: 'Radar'),
           NavigationDestination(
-              icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Messages'),
+              icon: Icon(Icons.shopping_cart_outlined), selectedIcon: Icon(Icons.shopping_cart), label: 'Achat'),
           NavigationDestination(
               icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory_2), label: 'Stock'),
         ],

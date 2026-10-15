@@ -190,6 +190,12 @@ class DealsStore {
     return rows.isEmpty ? null : Deal.fromRow(rows.first);
   }
 
+  /// Annonces achetées (marqueur dans le fil du Radar).
+  static Future<Set<String>> boughtListIds() async =>
+      (await (await RadarDb.db).query('deals', columns: ['list_id'], where: "list_id IS NOT NULL AND list_id != ''"))
+          .map((r) => r['list_id'] as String)
+          .toSet();
+
   static Future<Deal?> forListId(String listId) async {
     if (listId.isEmpty) return null;
     final rows = await (await RadarDb.db).query('deals', where: 'list_id = ?', whereArgs: [listId], limit: 1);

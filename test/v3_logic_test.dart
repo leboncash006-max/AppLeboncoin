@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mpb_check/messages/auto_rules.dart';
-import 'package:mpb_check/messages/message_store.dart';
-import 'package:mpb_check/messages/reply_tools.dart';
+import 'package:mpb_check/buy/buy_rules.dart';
+import 'package:mpb_check/buy/buy_settings.dart';
 import 'package:mpb_check/models.dart';
 import 'package:mpb_check/services/deals.dart';
+import 'package:mpb_check/services/history.dart';
 import 'package:mpb_check/services/net_margin.dart';
 import 'package:mpb_check/services/offer.dart';
 import 'package:mpb_check/services/settings.dart';
@@ -54,7 +54,6 @@ void main() {
     test('main propre seulement et trop loin : alerte', () {
       final c = computeCosts(100, ad(lat: 45.76, lng: 4.83), s);
       expect(c.tooFar, isTrue);
-      expect(autoBlockReason(analysis(costs: c), 30), contains('trop loin'));
     });
 
     test('livraison possible mais main propre moins chère si proche', () {
@@ -77,24 +76,45 @@ void main() {
     test('état visuel inconnu ignoré', () => expect(lowestCondition('excellent', 'inconnu'), 'excellent'));
   });
 
-  group('défaut majeur', () {
-    test('bloque l\'envoi automatique', () {
-      final p = PhotoCheck(images: ['x'], coherent: 'oui', defects: [PhotoDefect('rayure', true, 0)]);
-      expect(p.hasMajorDefect, isTrue);
-      expect(autoBlockReason(analysis(photos: p), 30), contains('défaut majeur'));
+  group('achat auto strict', () {
+    final net = NetSettings(feePct: 5, feeFixed: 0.7, shippingCost: 6);
+    final b = BuySettings(minNetMargin: 60, maxPrice: 200);
+    PhotoCheck goodPhotos() => PhotoCheck(images: ['a', 'b'], coherent: 'oui', visualCondition: 'excellent');
+    HistoryEntry entry(Analysis a, {bool shippable = true}) => HistoryEntry(
+        id: 'radar_1', date: DateTime(2026), url: 'u', title: 'Sony A6000', adPrice: a.price, description: '',
+        attributes: {}, analysis: a, extras: AdExtras(images: ['a', 'b'], shippable: shippable));
+    Analysis sure({double price = 100, double buyback = 250, PhotoCheck? photos}) {
+      final a = analysis(price: price, buyback: buyback, photos: photos ?? goodPhotos());
+      a.aiVerdict = 'oui';
+      for (final i in a.items) {
+        i.prudentBuyback = buyback - 20;
+      }
+      return a;
+    }
+
+    test('tout est sûr : achat possible', () => expect(buyBlockReason(entry(sure()), b, net), isNull));
+    test('défaut majeur : refus', () {
+      final p = PhotoCheck(images: ['a', 'b'], coherent: 'oui', visualCondition: 'good', defects: [PhotoDefect('rayure', true, 0)]);
+      expect(buyBlockReason(entry(sure(photos: p)), b, net), contains('défaut majeur'));
     });
     test('« écran cassé » est majeur même marqué mineur', () {
       final p = PhotoCheck(images: ['x'], coherent: 'oui', defects: [PhotoDefect('écran cassé', false, 1)]);
       expect(p.hasMajorDefect, isTrue);
     });
-    test('photos incohérentes bloquent', () {
-      final p = PhotoCheck(images: ['x'], coherent: 'doute');
-      expect(autoBlockReason(analysis(photos: p), 30), contains('photos'));
+    test('photos en doute : refus', () {
+      final p = PhotoCheck(images: ['a', 'b'], coherent: 'doute', visualCondition: 'good');
+      expect(buyBlockReason(entry(sure(photos: p)), b, net), contains('photos'));
     });
-    test('tout bon : pas de blocage', () {
-      final p = PhotoCheck(images: ['x'], coherent: 'oui', defects: [PhotoDefect('micro-rayure', false, 0)]);
-      expect(autoBlockReason(analysis(photos: p), 30), isNull);
+    test('verdict pas « oui » : refus', () {
+      final a = sure()..aiVerdict = 'doute';
+      expect(buyBlockReason(entry(a), b, net), contains('vérification'));
     });
+    test('pas de livraison : refus', () => expect(buyBlockReason(entry(sure(), shippable: false), b, net), contains('livraison')));
+    test('marge nette trop faible : refus', () {
+      // 250 − (150 + 7,5 + 0,7 + 6) = 85,8 → OK ; 200 − 164,2 = 35,8 → refus
+      expect(buyBlockReason(entry(sure(price: 150, buyback: 200)), b, net), contains('marge nette'));
+    });
+    test('trop cher : refus', () => expect(buyBlockReason(entry(sure(price: 190, buyback: 400)), b, net), contains('max')));
   });
 
   group('tableau de bord du Stock', () {
@@ -125,19 +145,5 @@ void main() {
       expect(csv.split('\n').length, 4);
       expect(csv, contains('Payé par MPB'));
     });
-  });
-
-  group('réponses des vendeurs', () {
-    SellerMessage msg(int id, String title, DateTime sent) => SellerMessage.fromRow({
-          'id': id,
-          'title': title,
-          'status': 'sent',
-          'sent_at': sent.millisecondsSinceEpoch,
-          'created_at': sent.millisecondsSinceEpoch,
-        });
-    final now = DateTime(2026, 10, 10);
-    final list = [msg(1, 'Sony a68 avec 16-50 2.8', DateTime(2026, 10, 9)), msg(2, 'Canon EOS 1200D + 18-55', DateTime(2026, 10, 1))];
-    test('rattachée par le titre', () => expect(matchReply('Paul · Canon 1200D : toujours dispo', list, now: now)!.id, 2));
-    test('une seule annonce récente', () => expect(matchReply('Paul : oui', list, now: now)!.id, 1));
   });
 }

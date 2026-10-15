@@ -1,5 +1,4 @@
 import '../models.dart';
-import 'history.dart';
 import 'net_margin.dart';
 
 /// Prix d'achat maximum pour garder la marge NETTE voulue (arrondi aux 5 € inférieurs).
@@ -19,18 +18,4 @@ double? suggestedOffer(Analysis a, double minMargin) {
   if (max == null) return null;
   if (price == null) return max;
   return price <= max ? price : max;
-}
-
-/// Message prêt à envoyer au vendeur.
-String sellerMessage(HistoryEntry e, double minMargin) {
-  final offer = suggestedOffer(e.analysis, minMargin);
-  final price = e.analysis.price;
-  final b = StringBuffer('Bonjour, votre annonce « ${e.title} » est-elle toujours disponible ? ');
-  if (offer != null && price != null && offer < price) {
-    b.write('Je vous propose ${offer.toStringAsFixed(0)} €, ');
-  } else {
-    b.write('Je suis intéressé au prix indiqué, ');
-  }
-  b.write('je peux régler rapidement (paiement sécurisé Leboncoin ou en main propre). Merci !');
-  return b.toString();
 }

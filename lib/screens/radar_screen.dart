@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../messages/message_store.dart';
 import '../radar/radar_bridge.dart';
 import '../radar/radar_db.dart';
+import '../services/deals.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -85,7 +85,7 @@ class _RadarScreenState extends State<RadarScreen> with WidgetsBindingObserver {
     final searches = await RadarDb.searches();
     _sort = await RadarDb.feedSort();
     final feed = await RadarDb.analyses(searchId: _filter, sort: _sort);
-    final contacted = await MessageStore.contacted(feed.map((a) => a.listId).toList());
+    final contacted = await DealsStore.boughtListIds();
     final today = await RadarDb.today();
     var state = await RadarDb.state();
     if (perms != null && !perms.enabled) state = RadarState.off;
@@ -449,7 +449,7 @@ class _FeedTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 const SizedBox(height: 3),
-                Text('${contacted ? '✉️ Contacté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
+                Text('${contacted ? '🛒 Acheté · ' : ''}${euros(a.price)} · ${a.searchName} · ${shortDate(a.createdAt)}$stage',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),

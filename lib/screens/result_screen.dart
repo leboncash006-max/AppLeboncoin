@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models.dart';
@@ -17,22 +16,14 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/v3_cards.dart';
 import 'chat_screen.dart';
-import '../messages/message_store.dart';
-import 'send_screen.dart';
+import '../buy/buy_rules.dart';
+import '../buy/buy_settings.dart';
 import 'deals_screen.dart';
 
 const mpbSellUrl = 'https://www.mpb.com/fr-fr/vente-ou-reprise';
 
 void openExternal(String url) =>
     launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-
-/// « Message vendeur » : rédaction + envoi dans la WebView de l'appli
-/// (selon le mode choisi : je confirme, envoi direct ou test à blanc).
-Future<void> contactSeller(BuildContext context, HistoryEntry e, double minMargin, {SellerMessage? existing}) async {
-  if (e.url.isEmpty) return;
-  await Navigator.push(context,
-      MaterialPageRoute(builder: (_) => SendScreen(entry: e, minMargin: minMargin, existing: existing)));
-}
 
 /// Résultat d'une analyse (nouvelle ou rouverte depuis l'historique).
 class ResultScreen extends StatefulWidget {
@@ -48,25 +39,24 @@ class _ResultScreenState extends State<ResultScreen> {
   HistoryEntry get entry => widget.entry;
   Settings get settings => widget.settings;
   Deal? _deal;
-  SellerMessage? _msg; // dernier message au vendeur pour cette annonce
+  String? _buyInfo; // achat auto : éligible ou raison du refus
 
   @override
   void initState() {
     super.initState();
     _loadDeal();
-    _loadMsg();
+    _loadBuy();
   }
 
-  Future<void> _loadMsg() async {
-    try {
-      final m = await MessageStore.forAd(listIdOf(entry));
-      if (mounted) setState(() => _msg = m);
-    } catch (_) {}
-  }
-
-  Future<void> _contact() async {
-    await contactSeller(context, entry, settings.minMargin);
-    _loadMsg();
+  Future<void> _loadBuy() async {
+    if (entry.url.isEmpty) return;
+    final b = await BuySettings.load();
+    final why = buyBlockReason(entry, b, settings.net);
+    if (mounted) {
+      setState(() => _buyInfo = why == null
+          ? '🛒 Achat auto : éligible (dernier contrôle IA au moment de l\'achat)'
+          : '🛒 Achat auto : non — $why');
+    }
   }
 
   Future<void> _loadDeal() async {
@@ -109,9 +99,7 @@ class _ResultScreenState extends State<ResultScreen> {
     );
     if (price == null) return;
     await DealsStore.addFromEntry(entry, price, fees: entry.analysis.costs?.total ?? 0);
-    await MessageStore.setStatusForAd(listIdOf(entry), MsgStatus.bought);
     await _loadDeal();
-    _loadMsg();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: const Text('Ajouté au Stock'),
@@ -224,17 +212,11 @@ class _ResultScreenState extends State<ResultScreen> {
               Row(children: [
                 if (entry.url.isNotEmpty) ...[
                   Expanded(
-                    child: _msg?.status == MsgStatus.sent
-                        ? FilledButton.tonalIcon(
-                            onPressed: _contact,
-                            icon: const Icon(Icons.mark_email_read_outlined, size: 20),
-                            label: const Text('Contacté ✓'),
-                          )
-                        : FilledButton.icon(
-                            onPressed: _contact,
-                            icon: const Icon(Icons.send_outlined, size: 20),
-                            label: const Text('Message vendeur'),
-                          ),
+                    child: FilledButton.icon(
+                      onPressed: () => openExternal(entry.url),
+                      icon: const Icon(Icons.open_in_new, size: 20),
+                      label: const Text('Voir l\'annonce'),
+                    ),
                   ),
                   const SizedBox(width: 10),
                 ],
@@ -253,11 +235,10 @@ class _ResultScreenState extends State<ResultScreen> {
                         ),
                 ),
               ]),
-              if (_msg != null) ...[
+              if (_buyInfo != null) ...[
                 const SizedBox(height: 6),
                 Text(
-                  '✉️ ${MsgStatus.label(_msg!.status)} · ${shortDate(_msg!.sentAt ?? _msg!.createdAt)}'
-                  '${_msg!.offer == null ? '' : ' · proposé ${euros(_msg!.offer)}'}',
+                  _buyInfo!,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
@@ -582,6 +563,7 @@ class _ItemCard extends StatelessWidget {
       'boitier' => (Icons.photo_camera_outlined, 'Boîtier'),
       'objectif' => (Icons.camera_outlined, 'Objectif'),
       'flash' => (Icons.flash_on_outlined, 'Flash'),
+      'produit' => (Icons.devices_other_outlined, 'Produit'),
       _ => (Icons.devices_other_outlined, 'Autre'),
     };
     final found = r.mpbModel != null;
@@ -613,7 +595,12 @@ class _ItemCard extends StatelessWidget {
               const SizedBox(height: 2),
               Text(found ? r.mpbModel! : r.item.nameGuess,
                   style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, height: 1.25)),
-              if (!found)
+              if (r.item.type == 'produit' && r.reason.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(r.reason, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12.5)),
+                )
+              else if (!found && r.item.type != 'produit')
                 const Padding(
                   padding: EdgeInsets.only(top: 2),
                   child: Text('Introuvable chez MPB',
@@ -638,6 +625,8 @@ class _ItemCard extends StatelessWidget {
             const Pill(label: 'Prix MPB réel', color: AppColors.good, icon: Icons.verified)
           else if (r.source == 'pour pièces')
             const Pill(label: 'Pour pièces : 0 €', color: AppColors.bad, icon: Icons.block)
+          else if (r.source == 'estimation IA (web)')
+            const Pill(label: 'Estimation IA (web)', color: AppColors.warn, icon: Icons.travel_explore)
           else if (r.approximate)
             const Pill(
                 label: 'Estimation approximative',
@@ -773,20 +762,6 @@ class _OfferCard extends StatelessWidget {
           '${prudent != null && prudent != max ? ' (prudent : ${euros(prudent)})' : ''}. '
           '${over ? 'Propose ${euros(offer)} au vendeur.' : 'Le prix demandé est déjà en dessous.'}',
           style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: sellerMessage(entry, minMargin)));
-              if (context.mounted) {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('Message pour le vendeur copié')));
-              }
-            },
-            icon: const Icon(Icons.copy, size: 16),
-            label: const Text('Copier le message'),
-          ),
         ),
       ]),
     );

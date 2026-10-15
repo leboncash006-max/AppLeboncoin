@@ -3,6 +3,7 @@ import '../models.dart';
 import 'corrections.dart';
 import 'gemini_service.dart';
 import 'local_identifier.dart';
+import 'market_estimate.dart';
 import 'match_check.dart';
 import 'net_margin.dart';
 import 'photo_check.dart';
@@ -14,7 +15,7 @@ import 'settings.dart';
 /// Annonce d'accessoire (d'après le TITRE) : bagues, filtres, sacs… pas de reprise MPB.
 final accessoryTitle = RegExp(
     r'^\W*(?:\d+\s*)?(?:lot\s+(?:de\s+)?)?(?:\d+\s*)?(?<acc>bagues?|adaptateurs?|filtres?|pare[- ]soleils?|bouchons?|sacs?|'
-    r'sacoches?|tr[ée]pieds?|monopodes?|batteries?|chargeurs?|grips?|poign[ée]es?|cartes?|c[âa]bles?|'
+    r'sacoches?|tr[ée]pieds?|monopodes?|batteries?|chargeurs?|grips?|poign[ée]es?|cartes?(?!\s+(?:graphique|m[eè]re|son))|c[âa]bles?|'
     r't[ée]l[ée]commandes?|courroies?|dragonnes?|housses?|[ée]tuis?|rotules?|oeilletons?|[œo]illetons?|'
     r'protections?|films?|pellicules?|flashs?\s+cobra\s+universel)\b',
     caseSensitive: false);
@@ -38,7 +39,7 @@ const _extractSchema = {
         'properties': {
           'type': {
             'type': 'STRING',
-            'enum': ['boitier', 'objectif', 'flash', 'autre']
+            'enum': ['boitier', 'objectif', 'flash', 'produit', 'autre']
           },
           'brand': {'type': 'STRING'},
           'mpb_name_guess': {'type': 'STRING'},
@@ -87,8 +88,11 @@ Tu es expert en matériel photo d'occasion. Voici une annonce Leboncoin.
 
 Liste chaque boîtier, objectif et flash VENDU dans l'annonce (pas les sacs,
 cartes SD, batteries, chargeurs, courroies, filtres ou trépieds sans valeur).
+Si l'annonce vend un autre objet de valeur (console, téléphone, tablette, ordinateur,
+montre, drone, casque audio, enceinte…), mets-le en type « produit » avec son nom
+commercial complet (modèle, capacité, couleur si utile) dans mpb_name_guess.
 Pour chacun :
-- type : boitier, objectif, flash ou autre
+- type : boitier, objectif, flash, produit ou autre
 - brand : la marque (Canon, Nikon, Sony, Fujifilm, Sigma, Tamron…)
 - mpb_name_guess : le nom officiel complet, au format du catalogue MPB, par
   exemple « Canon EOS 1200D », « Nikon D3200 », « Sony Alpha A6000 »,
@@ -247,6 +251,10 @@ class Analyzer {
       onStep?.call('Recherche dans le catalogue MPB…');
       final exactMatches = <ExtractedItem, String>{};
       for (final it in extracted) {
+        if (it.type == 'produit') {
+          results.add(ItemResult(it, [])); // hors photo : estimé plus bas (pas de MPB)
+          continue;
+        }
         final cands = <String>{};
         // a) catalogue local : nom exact, sinon noms les plus proches (sans réseau)
         final cat = catalog;
@@ -281,7 +289,7 @@ class Analyzer {
 
       // 3. Gemini choisit le bon nom parmi les candidats
       final withCands =
-          results.where((r) => r.candidates.isNotEmpty && r.mpbModel == null).toList();
+          results.where((r) => r.candidates.isNotEmpty && r.mpbModel == null && r.item.type != 'produit').toList();
       if (withCands.isNotEmpty) {
         onStep?.call('Identification des modèles exacts…');
         final ch = await gemini.generateJson(_choosePrompt(ad, withCands), _chooseSchema);
@@ -300,7 +308,7 @@ class Analyzer {
       // 3 ter. l'IA n'a rien retenu dans le catalogue : nouvelle recherche en direct
       //        chez MPB, puis l'IA choisit à nouveau parmi ces candidats
       final retry = <ItemResult>[];
-      for (final r in results.where((r) => r.mpbModel == null)) {
+      for (final r in results.where((r) => r.mpbModel == null && r.item.type != 'produit')) {
         final fresh = (await liveSearch(r.item)).where((c) => !r.candidates.contains(c)).toList();
         if (fresh.isEmpty) continue;
         r.candidates
@@ -324,7 +332,7 @@ class Analyzer {
         }
       }
       // 3 quinquies. le nom officiel deviné existe-t-il chez MPB, même hors catalogue ?
-      for (final r in results.where((r) => r.mpbModel == null)) {
+      for (final r in results.where((r) => r.mpbModel == null && r.item.type != 'produit')) {
         final name = r.item.nameGuess.trim();
         if (name.isEmpty || _part.hasMatch(name)) continue;
         try {
@@ -353,6 +361,29 @@ class Analyzer {
           r.mpbModel = same.first;
           r.confident = false;
           r.reason = 'Même référence que l\'annonce (choix automatique, à vérifier)';
+        }
+      }
+      // 3 sexies. autres catégories (hors photo) : estimation de prix par l'IA (web)
+      for (final r in results.where((r) => r.item.type == 'produit')) {
+        onStep?.call('Estimation du prix de « ${r.item.nameGuess} » (recherche web)…');
+        try {
+          final est = await estimateMarket(gemini, r.item.nameGuess, conditionFromAd('$attributes\n$title'), ad);
+          if (est != null) {
+            r.buyback = est.value;
+            r.prudentBuyback = est.value! * 0.9;
+            r.source = 'estimation IA (web)';
+            r.reason = [
+              if (est.quickBuyback != null)
+                'Reprise ${est.quickBuyback!.toStringAsFixed(0)} €${est.buyer.isEmpty ? '' : ' (${est.buyer})'}',
+              if (est.resale != null) 'revente entre particuliers ≈ ${est.resale!.toStringAsFixed(0)} €',
+              if (est.note.isNotEmpty) est.note,
+            ].join(' · ');
+            warnings.add('« ${r.item.nameGuess} » : prix estimé par l\'IA (recherche web), à vérifier.');
+          } else {
+            warnings.add('« ${r.item.nameGuess} » : prix introuvable.');
+          }
+        } catch (e) {
+          warnings.add('« ${r.item.nameGuess} » : estimation impossible (${e.toString().replaceFirst('Exception: ', '')}).');
         }
       }
     } catch (e) {
@@ -415,6 +446,7 @@ class Analyzer {
     }
     final prudentCond = conditionBelow(mainCond);
     for (final r in results) {
+      if (r.item.type == 'produit') continue; // prix déjà estimé (hors MPB)
       final m = r.mpbModel;
       if (m == null) {
         warnings.add(failedSearch.contains(r.item)
