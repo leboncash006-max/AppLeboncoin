@@ -378,3 +378,13 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 - `tool/patch_signing.py`, `signing/` : signature fixe de l'APK
 - `android_native/proguard-rules.pro` : règles R8 (WorkManager/Room, radar) ; sans elles
   l'appli plante au démarrage en release
+
+
+## IA gratuite : DeepSeek (chat web) + Gemini
+
+- `lib/services/deepseek_web.dart` pilote **https://chat.deepseek.com/** (pas le site vitrine) dans une WebView invisible ; session partagée avec la WebView visible. Si le site change : corriger uniquement `DsSite` en tête du fichier.
+- **Paramètres** (icône engrenage de l'accueil) : tous les réglages regroupés — seuil « bonne affaire », marge nette, DeepSeek (connexion, interrupteurs, tests texte et vision), clés Gemini, Leboncoin, radar, messages, catalogue, calcul de secours, thème.
+- `GeminiService.generateJson` : DeepSeek d'abord pour le texte, Gemini en repli. Photos : DeepSeek seulement si l'option est cochée **et** si le test de vision a réussi ; sinon Gemini.
+- Chat « Questions » : choix DeepSeek (conversation gardée ouverte, photos jointes en option) ou Gemini + recherche web ; repli automatique sur Gemini.
+- Radar → Toutes les annonces : appui long pour sélectionner et supprimer, menu ⋮ → « Tout supprimer… » (avec option d'oublier aussi les annonces vues).
+- En cas de panne durable (session expirée, anti-robot), DeepSeek est suspendu 10 min et Gemini prend le relais.
