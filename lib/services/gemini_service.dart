@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../secrets.dart';
+import 'deepseek_web.dart';
 
 class _KeyError implements Exception {}
 
@@ -48,6 +49,16 @@ class GeminiService {
   /// [images] : photos JPEG envoyées en inline_data (analyse des photos).
   Future<Map<String, dynamic>> generateJson(String prompt, Map<String, dynamic> schema,
       {double temperature = 0, List<Uint8List> images = const []}) async {
+    // DeepSeek (chat web gratuit) d'abord pour le texte : ça économise le quota
+    // Gemini. Les photos restent à Gemini (le chat web DeepSeek ne les « voit » pas).
+    // Au moindre souci, on retombe sur les clés Gemini.
+    if (images.isEmpty && await DeepSeekWeb.available()) {
+      try {
+        return await DeepSeekWeb.generateJson(prompt, schema);
+      } catch (_) {
+        // repli sur Gemini ci-dessous (DeepSeekWeb se suspend seul si la panne est durable)
+      }
+    }
     final modelOrder = [
       if (_workingModel != null) _workingModel!,
       ...models.where((m) => m != _workingModel),
@@ -168,7 +179,16 @@ class GeminiService {
   /// Conversation libre (pas de responseSchema) avec l'outil Google Search.
   /// Ordre : modèles flash-lite de [geminiModels] avec recherche, puis sans outil. Mêmes clés (et bascule sur quota) que [generateJson].
   Future<ChatReply> chat(
-      String systemInstruction, List<({String role, String text})> turns) async {
+      String systemInstruction, List<({String role, String text})> turns,
+      {bool allowDeepSeek = true}) async {
+    // Chat via DeepSeek seulement si activé dans les réglages (pas de recherche Google).
+    if (allowDeepSeek && await DeepSeekWeb.available() && await DeepSeekWeb.chatEnabled()) {
+      try {
+        return ChatReply(await DeepSeekWeb.chatText(systemInstruction, turns), const [], false);
+      } catch (_) {
+        // repli sur Gemini ci-dessous
+      }
+    }
     final primary = [
       if (_workingModel != null) _workingModel!,
       ...models.where((m) => m != _workingModel),

@@ -28,6 +28,9 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
   List<RadarAnalysis> _analyses = [];
   Set<String> _contacted = {};
   List<SeenAd> _seen = [];
+  final Set<String> _selected = {}; // analyses cochées (appui long pour commencer)
+
+  bool get _selecting => _selected.isNotEmpty;
 
   @override
   void initState() {
@@ -47,7 +50,69 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
       _analyses = analyses;
       _contacted = contacted;
       _seen = seen;
+      _selected.removeWhere((id) => !analyses.any((a) => a.listId == id));
     });
+  }
+
+  void _toggle(String id) => setState(() => _selected.contains(id) ? _selected.remove(id) : _selected.add(id));
+
+  /// Demande confirmation. Rend null si annulé, sinon « oublier aussi les annonces vues ? ».
+  Future<bool?> _confirmDelete(String title, String body) async {
+    var forget = false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: Text(title),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(body),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: forget,
+              onChanged: (v) => setD(() => forget = v ?? false),
+              title: const Text('Aussi oublier ces annonces', style: TextStyle(fontSize: 14)),
+              subtitle: const Text('Le radar pourra les ré-analyser si elles reviennent', style: TextStyle(fontSize: 12)),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Supprimer')),
+          ],
+        ),
+      ),
+    );
+    return ok == true ? forget : null;
+  }
+
+  void _done(int n) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(n == 1 ? '1 analyse supprimée.' : '$n analyses supprimées.')));
+  }
+
+  Future<void> _deleteSelected() async {
+    final n = _selected.length;
+    final forget = await _confirmDelete(
+        n == 1 ? 'Supprimer cette analyse ?' : 'Supprimer $n analyses ?', 'Cette action est définitive.');
+    if (forget == null) return;
+    final removed = await RadarDb.deleteAnalyses(_selected.toList(), forgetSeen: forget);
+    _selected.clear();
+    await _load();
+    _done(removed);
+  }
+
+  Future<void> _deleteAll() async {
+    if (_analyses.isEmpty) return;
+    final scope = _search == null ? 'du radar' : 'de « ${_searchName(_search!)} »';
+    final forget = await _confirmDelete(
+        'Tout supprimer ?', 'Les ${_analyses.length} analyses $scope seront supprimées définitivement.');
+    if (forget == null) return;
+    final removed = await RadarDb.deleteAllAnalyses(searchId: _search, forgetSeen: forget);
+    _selected.clear();
+    await _load();
+    _done(removed);
   }
 
   bool _match(String title) => _query.isEmpty || title.toLowerCase().contains(_query.toLowerCase());
@@ -58,6 +123,7 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
   List<SeenAd> get _shownSeen => _seen.where((a) => _match(a.title)).toList();
 
   Future<void> _openAnalysis(RadarAnalysis a) async {
+    if (_selecting) return _toggle(a.listId);
     final entry = a.entry;
     await Navigator.push(
         context, MaterialPageRoute(builder: (_) => ResultScreen(entry: entry, settings: widget.settings)));
@@ -78,16 +144,40 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
     final analyses = _shownAnalyses;
     final seen = _shownSeen;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Toutes les annonces'),
-        actions: [
-          IconButton(
-            tooltip: 'Exporter en PDF',
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            onPressed: () => showExportSheet(context, widget.settings),
-          ),
-        ],
-      ),
+      appBar: _selecting
+          ? AppBar(
+              leading: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(_selected.clear)),
+              title: Text('${_selected.length} sélectionnée(s)'),
+              actions: [
+                IconButton(
+                  tooltip: 'Tout sélectionner',
+                  icon: const Icon(Icons.select_all),
+                  onPressed: () => setState(() => _selected.addAll(analyses.map((a) => a.listId))),
+                ),
+                IconButton(tooltip: 'Supprimer', icon: const Icon(Icons.delete_outline), onPressed: _deleteSelected),
+              ],
+            )
+          : AppBar(
+              title: const Text('Toutes les annonces'),
+              actions: [
+                IconButton(
+                  tooltip: 'Exporter en PDF',
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  onPressed: () => showExportSheet(context, widget.settings),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'all') _deleteAll();
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                        value: 'all',
+                        enabled: _analyses.isNotEmpty,
+                        child: const Text('Tout supprimer…')),
+                  ],
+                ),
+              ],
+            ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -165,6 +255,9 @@ class _RadarAllScreenState extends State<RadarAllScreen> {
                     a: a,
                     minMargin: widget.settings.minMargin,
                     contacted: _contacted.contains(a.listId),
+                    selected: _selected.contains(a.listId),
+                    selecting: _selecting,
+                    onLongPress: () => _toggle(a.listId),
                     onTap: () => _openAnalysis(a)),
                 const SizedBox(height: 8),
               ],
@@ -214,20 +307,38 @@ class _AnalysisTile extends StatelessWidget {
   final RadarAnalysis a;
   final double minMargin;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final bool contacted;
-  const _AnalysisTile({required this.a, required this.minMargin, required this.onTap, this.contacted = false});
+  final bool selected;
+  final bool selecting;
+  const _AnalysisTile(
+      {required this.a,
+      required this.minMargin,
+      required this.onTap,
+      this.onLongPress,
+      this.contacted = false,
+      this.selected = false,
+      this.selecting = false});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final v = verdictFor(a.margin, minMargin);
     final stage = switch (a.stage) { 'full' => 'complète', 'limit' => 'provisoire', _ => 'pré-analyse' };
-    return Opacity(
-      opacity: a.profitable ? 1 : 0.6,
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Opacity(
+      opacity: a.profitable || selected ? 1 : 0.6,
       child: AppCard(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         onTap: onTap,
         child: Row(children: [
+          if (selecting)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: selected ? cs.primary : cs.onSurfaceVariant),
+            ),
           Container(width: 6, height: 44, decoration: BoxDecoration(color: v.color, borderRadius: BorderRadius.circular(4))),
           const SizedBox(width: 12),
           Expanded(
@@ -245,6 +356,6 @@ class _AnalysisTile extends StatelessWidget {
               style: TextStyle(color: v.color, fontWeight: FontWeight.w800, fontSize: 18, fontFeatures: tabular)),
         ]),
       ),
-    );
+    ));
   }
 }

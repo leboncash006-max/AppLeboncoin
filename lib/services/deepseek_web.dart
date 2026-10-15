@@ -113,7 +113,11 @@ class DeepSeekWeb {
     await p.setBool(k, v);
   }
 
-  static Future<bool> enabled() => _flag(_kEnabled);
+  static Future<bool> enabled() async {
+    final p = await SharedPreferences.getInstance();
+    await p.reload();
+    return p.getBool(_kEnabled) ?? true; // DeepSeek en priorité, par défaut
+  }
   static Future<void> setEnabled(bool v) async {
     await _setFlag(_kEnabled, v);
     if (v) _downUntil = null;

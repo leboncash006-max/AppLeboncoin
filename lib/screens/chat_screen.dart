@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/deepseek_web.dart';
 import '../services/gemini_service.dart';
 import '../services/history.dart';
 import '../services/mpb_service.dart';
+import '../services/photo_check.dart';
 import '../services/settings.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -99,10 +102,44 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scroll = ScrollController();
   bool _busy = false;
 
+  /// Moteur de la conversation : « deepseek » (chat web gratuit, la conversation
+  /// reste ouverte en arrière-plan) ou « gemini » (avec recherche Google).
+  String _engine = 'deepseek';
+  bool _visionOk = false; // le test de vision des paramètres a réussi
+  bool _attachPhotos = false; // joindre les photos de l'annonce (1re question)
+  DeepSeekChatSession? _session;
+
   List<ChatMessage> get _msgs => widget.entry.chat;
+
+  List<String> get _photoUrls =>
+      widget.entry.extras?.images ?? widget.entry.analysis.photos?.images ?? const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEngine();
+  }
+
+  Future<void> _loadEngine() async {
+    final p = await SharedPreferences.getInstance();
+    final vision = await DeepSeekWeb.visionVerified();
+    if (!mounted) return;
+    setState(() {
+      _engine = p.getString('chat_engine') ?? 'deepseek';
+      _visionOk = vision;
+      _attachPhotos = vision && _photoUrls.isNotEmpty;
+    });
+  }
+
+  Future<void> _setEngine(String e) async {
+    setState(() => _engine = e);
+    final p = await SharedPreferences.getInstance();
+    await p.setString('chat_engine', e);
+  }
 
   @override
   void dispose() {
+    _session?.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -137,13 +174,32 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _toBottom();
     try {
-      final reply = await GeminiService()
-          .chat(buildChatContext(widget.entry, widget.settings), _turns());
-      _msgs.add(ChatMessage(
-        'model',
-        reply.searched ? reply.text : '${reply.text}\n\n_(réponse sans recherche web)_',
-        sources: reply.sources.map((s) => WebSource(s.uri, s.title)).toList(),
-      ));
+      var viaDeepSeek = _engine == 'deepseek';
+      String? fallbackNote;
+      if (viaDeepSeek) {
+        try {
+          final text = await _askDeepSeek(q);
+          _msgs.add(ChatMessage('model', text));
+        } catch (e) {
+          // DeepSeek indisponible : on répond avec Gemini plutôt que de laisser sans réponse
+          viaDeepSeek = false;
+          _session?.dispose();
+          _session = null;
+          fallbackNote = '_(DeepSeek indisponible : ${e.toString().replaceFirst('Exception: ', '')} '
+              '— réponse de Gemini)_';
+        }
+      }
+      if (!viaDeepSeek) {
+        final reply = await GeminiService().chat(
+            buildChatContext(widget.entry, widget.settings), _turns(),
+            allowDeepSeek: false);
+        final note = fallbackNote ?? (reply.searched ? null : '_(réponse sans recherche web)_');
+        _msgs.add(ChatMessage(
+          'model',
+          note == null ? reply.text : '${reply.text}\n\n$note',
+          sources: reply.sources.map((s) => WebSource(s.uri, s.title)).toList(),
+        ));
+      }
       HapticFeedback.lightImpact();
     } catch (e) {
       _msgs.add(ChatMessage('model', e.toString().replaceFirst('Exception: ', ''),
@@ -155,8 +211,30 @@ class _ChatScreenState extends State<ChatScreen> {
     _toBottom();
   }
 
+  /// Pose la question à DeepSeek. La 1re question ouvre un chat avec tout le
+  /// contexte (annonce, analyse, historique) et, si coché, les photos ; les
+  /// suivantes continuent dans le même chat.
+  Future<String> _askDeepSeek(String q) async {
+    final session = _session ??= DeepSeekChatSession();
+    var system = buildChatContext(widget.entry, widget.settings);
+    var files = <DsFile>[];
+    if (!session.started && _attachPhotos && _photoUrls.isNotEmpty) {
+      final photos = await PhotoChecker(GeminiService()).downloadPhotos(_photoUrls);
+      files = [
+        for (var i = 0; i < photos.length; i++) DsFile('photo_${i + 1}.jpg', photos[i], mime: 'image/jpeg'),
+      ];
+      if (files.isNotEmpty) {
+        system += '\n${files.length} photo(s) de l\'annonce sont jointes à ce message (photo_1 = première).';
+      }
+    }
+    final first = DeepSeekWeb.flattenConversation(system, _turns());
+    return session.send(first, q, files: files);
+  }
+
   Future<void> _clear() async {
     setState(() => _msgs.clear());
+    _session?.dispose(); // la prochaine question ouvrira un nouveau chat DeepSeek
+    _session = null;
     await HistoryStore.upsert(widget.entry);
   }
 
@@ -183,6 +261,33 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'deepseek', icon: Icon(Icons.bolt, size: 18), label: Text('DeepSeek')),
+                ButtonSegment(value: 'gemini', icon: Icon(Icons.travel_explore, size: 18), label: Text('Gemini + web')),
+              ],
+              selected: {_engine},
+              showSelectedIcon: false,
+              onSelectionChanged: _busy ? null : (v) => _setEngine(v.first),
+            ),
+            if (_engine == 'deepseek' && _photoUrls.isNotEmpty && !(_session?.started ?? false))
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: FilterChip(
+                    avatar: const Icon(Icons.photo_outlined, size: 18),
+                    label: Text(_visionOk ? 'Joindre les photos' : 'Photos : teste la vision dans Paramètres'),
+                    selected: _attachPhotos && _visionOk,
+                    onSelected: _visionOk ? (v) => setState(() => _attachPhotos = v) : null,
+                  ),
+                ),
+              ),
+          ]),
+        ),
         Expanded(
           child: _msgs.isEmpty
               ? _Empty(onPick: _send)
@@ -259,7 +364,7 @@ class _Empty extends StatelessWidget {
             textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 6),
         Text(
-          "L'IA connaît l'annonce et l'analyse complète, et peut chercher sur le web.",
+          "L'IA connaît l'annonce et l'analyse complète. Gemini peut aussi chercher sur le web.",
           textAlign: TextAlign.center,
           style: TextStyle(color: cs.onSurfaceVariant),
         ),

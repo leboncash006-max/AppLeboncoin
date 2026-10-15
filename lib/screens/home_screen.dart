@@ -226,8 +226,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 context, MaterialPageRoute(builder: (_) => DealsScreen(settings: s))),
           ),
           IconButton(
-            tooltip: 'Réglages',
-            icon: const Icon(Icons.tune),
+            tooltip: 'Paramètres',
+            icon: const Icon(Icons.settings_outlined),
             onPressed: () async {
               await Navigator.push(
                   context, MaterialPageRoute(builder: (_) => SettingsScreen(settings: s)));

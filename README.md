@@ -383,8 +383,9 @@ L'APK est dans `build/app/outputs/flutter-apk/`.
 ## IA gratuite : DeepSeek (chat web) + Gemini
 
 - `lib/services/deepseek_web.dart` pilote **https://chat.deepseek.com/** (pas le site vitrine) dans une WebView invisible ; session partagée avec la WebView visible. Si le site change : corriger uniquement `DsSite` en tête du fichier.
-- **Paramètres** (icône engrenage de l'accueil) : tous les réglages regroupés — seuil « bonne affaire », marge nette, DeepSeek (connexion, interrupteurs, tests texte et vision), clés Gemini, Leboncoin, radar, messages, catalogue, calcul de secours, thème.
-- `GeminiService.generateJson` : DeepSeek d'abord pour le texte, Gemini en repli. Photos : DeepSeek seulement si l'option est cochée **et** si le test de vision a réussi ; sinon Gemini.
+- **Paramètres** (icône engrenage de l'accueil) : tous les réglages regroupés — seuil « bonne affaire », marge nette, DeepSeek (connexion, interrupteurs, tests texte et vision), clés Gemini, Leboncoin, radar, catalogue, calcul de secours, thème.
+- **DeepSeek activé par défaut** : connecte-toi une fois dans Paramètres › DeepSeek.
+- `GeminiService.generateJson` : DeepSeek d'abord pour le texte (identification, vérification, contrôle final de l'achat auto), Gemini en repli. Les estimations hors photo restent sur Gemini (recherche web). Photos : DeepSeek seulement si l'option est cochée **et** si le test de vision a réussi ; sinon Gemini.
 - Chat « Questions » : choix DeepSeek (conversation gardée ouverte, photos jointes en option) ou Gemini + recherche web ; repli automatique sur Gemini.
 - Radar → Toutes les annonces : appui long pour sélectionner et supprimer, menu ⋮ → « Tout supprimer… » (avec option d'oublier aussi les annonces vues).
 - En cas de panne durable (session expirée, anti-robot), DeepSeek est suspendu 10 min et Gemini prend le relais.

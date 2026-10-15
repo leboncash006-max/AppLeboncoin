@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
 import '../models.dart';
+import 'deepseek_web.dart';
 import 'gemini_service.dart';
 import 'v3_models.dart';
 
@@ -71,6 +72,12 @@ class PhotoChecker {
     return (okUrls, out);
   }
 
+  /// Photos réduites (JPEG ~1024 px), par exemple pour le chat DeepSeek.
+  Future<List<Uint8List>> downloadPhotos(List<String> urls, {int max = 4}) async {
+    final (_, photos) = await _download(urls.take(max).toList());
+    return photos;
+  }
+
   /// Analyse. null si aucune photo n'a pu être lue (l'analyse continue sans).
   Future<PhotoCheck?> check(List<String> urls, String title, String description, Analysis a) async {
     if (urls.isEmpty) return null;
@@ -100,9 +107,37 @@ Réponds :
   photo_index = numéro de la photo où on le voit.
 - accessoires_visibles : batterie, chargeur, bouchons, pare-soleil, boîte, sangle…
 Ne devine pas : ne signale que ce qui se voit.''';
+    // DeepSeek (chat web gratuit) d'abord si l'option est cochée ET que le test de
+    // vision a réussi ; au moindre doute (pas d'image reçue, erreur), Gemini prend le relais.
+    if (await DeepSeekWeb.photosAvailable()) {
+      final n = photos.length < dsMaxPhotos ? photos.length : dsMaxPhotos; // moins de photos = envoi plus rapide
+      try {
+        final j = await DeepSeekWeb.generateJson(
+          '$prompt\n\nIMPORTANT : $n photo(s) sont jointes à ce message. Si tu ne les vois pas '
+          '(aucune image reçue), réponds modele_visible "", coherent_avec_annonce "doute", '
+          'etat_visuel "inconnu", raison "aucune image reçue", defauts [] et accessoires_visibles [].',
+          _schema,
+          files: [
+            for (var i = 0; i < n; i++) DsFile('photo_${i + 1}.jpg', photos[i], mime: 'image/jpeg'),
+          ],
+        );
+        if (!_noImageSeen(j)) return PhotoCheck.fromJson(j, images: okUrls.take(n).toList());
+      } catch (_) {
+        // repli sur Gemini ci-dessous
+      }
+    }
     final j = await gemini.generateJson(prompt, _schema, images: photos);
     return PhotoCheck.fromJson(j, images: okUrls);
   }
+
+  /// DeepSeek a répondu qu'il n'a reçu aucune image : résultat inutilisable.
+  static bool _noImageSeen(Map<String, dynamic> j) {
+    final raison = (j['raison'] ?? '').toString().toLowerCase();
+    return RegExp(r"aucune image|pas d'image|no image|n'ai pas (reçu|vu)").hasMatch(raison);
+  }
+
+  /// Nombre maximal de photos envoyées à DeepSeek (envoi une par une, donc plus lent).
+  static const dsMaxPhotos = 4;
 }
 
 /// Décode, réduit à [PhotoChecker.maxSide] px et réencode en JPEG (qualité 80).

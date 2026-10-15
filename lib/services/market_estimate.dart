@@ -37,6 +37,7 @@ Donne en euros, pour CE modèle exact et cet état :
  "note": une phrase (capacité, version, ce qui fait varier le prix)}'''
       )
     ],
+    allowDeepSeek: false, // il faut la recherche web de Gemini pour les prix
   );
   final m = RegExp(r'\{[\s\S]*\}').firstMatch(reply.text);
   if (m == null) return null;

@@ -334,6 +334,39 @@ class RadarDb {
           .map(RadarAnalysis.fromRow)
           .toList();
 
+  /// Supprime des analyses (par identifiant d'annonce) et rend leur nombre.
+  /// [forgetSeen] : oublie aussi ces annonces (le radar pourra les ré-analyser) ;
+  /// sinon elles restent « vues » (raison : analyse supprimée), donc pas de ré-analyse.
+  static Future<int> deleteAnalyses(Iterable<String> listIds, {bool forgetSeen = false}) async {
+    final ids = listIds.toSet().toList();
+    if (ids.isEmpty) return 0;
+    var removed = 0;
+    await (await db).transaction((tx) async {
+      for (var i = 0; i < ids.length; i += 500) {
+        final end = i + 500 > ids.length ? ids.length : i + 500;
+        final chunk = ids.sublist(i, end);
+        final ph = List.filled(chunk.length, '?').join(',');
+        removed += await tx.delete('analyses', where: 'list_id IN ($ph)', whereArgs: chunk);
+        if (forgetSeen) {
+          await tx.delete('seen_ads', where: 'list_id IN ($ph)', whereArgs: chunk);
+        } else {
+          await tx.update('seen_ads', {'reason': 'analyse supprimée'},
+              where: 'list_id IN ($ph)', whereArgs: chunk);
+        }
+      }
+    });
+    return removed;
+  }
+
+  /// Supprime toutes les analyses (ou celles d'une seule recherche) et rend leur nombre.
+  static Future<int> deleteAllAnalyses({int? searchId, bool forgetSeen = false}) async {
+    final rows = await (await db).query('analyses',
+        columns: ['list_id'],
+        where: searchId == null ? null : 'search_id = ?',
+        whereArgs: searchId == null ? null : [searchId]);
+    return deleteAnalyses(rows.map((r) => r['list_id'] as String), forgetSeen: forgetSeen);
+  }
+
   static Future<void> deleteAnalysis(String listId) async =>
       (await db).delete('analyses', where: 'list_id = ?', whereArgs: [listId]);
 
